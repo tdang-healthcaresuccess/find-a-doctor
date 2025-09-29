@@ -40,7 +40,13 @@ function fnd_render_api_import_page() {
                             
                             <label for="search-limit">Limit:</label>
                             <input type="number" id="search-limit" name="limit" value="100" min="1" max="1000" />
-                            <small>Maximum number of physicians to import (1-1000)</small>
+                            <small>Maximum number of physicians to import (1-1000, ignored if "Import All Pages" is checked)</small>
+                            <br><br>
+                            
+                            <label>
+                                <input type="checkbox" id="import-all-pages" name="import_all_pages" value="1" />
+                                <strong>Import All Pages</strong> - Import all physicians from all pages (may take a long time)
+                            </label>
                             <br><br>
                             
                             <label>
@@ -71,6 +77,20 @@ function fnd_render_api_import_page() {
             <p>Sync languages and hospital affiliations from the API.</p>
             <button id="sync-reference-data" class="button">Sync Reference Data</button>
             <div id="sync-result"></div>
+        </div>
+        
+        <!-- Duplicate Management -->
+        <div class="card">
+            <h2>Duplicate Management</h2>
+            <p>Check for and manage duplicate physician records in the database.</p>
+            
+            <div style="margin-bottom: 15px;">
+                <button id="check-duplicates" class="button">Check for Duplicates</button>
+                <button id="cleanup-duplicates-preview" class="button">Preview Cleanup</button>
+                <button id="cleanup-duplicates-execute" class="button button-secondary" style="display: none;">Execute Cleanup</button>
+            </div>
+            
+            <div id="duplicate-results"></div>
         </div>
         
         <!-- API Information -->
@@ -167,6 +187,17 @@ function fnd_render_api_import_page() {
                 limit: $('#search-limit').val()
             };
             
+            var importAllPages = $('#import-all-pages').is(':checked');
+            
+            // Disable limit input when import all pages is checked
+            $('#import-all-pages').on('change', function() {
+                if ($(this).is(':checked')) {
+                    $('#search-limit').prop('disabled', true).val('ALL');
+                } else {
+                    $('#search-limit').prop('disabled', false).val('100');
+                }
+            });
+            
             submitButton.prop('disabled', true);
             previewButton.prop('disabled', true);
             progressDiv.show();
@@ -186,6 +217,7 @@ function fnd_render_api_import_page() {
                     action: 'fad_import_from_api',
                     search_params: searchParams,
                     dry_run: isDryRun ? 'true' : 'false',
+                    import_all_pages: importAllPages ? 'true' : 'false',
                     nonce: '<?php echo wp_create_nonce('fad_api_nonce'); ?>'
                 },
                 success: function(response) {
@@ -318,6 +350,156 @@ function fnd_render_api_import_page() {
                     button.prop('disabled', false).text('Sync Reference Data');
                 }
             });
+        });
+        
+        // Check for Duplicates
+        $('#check-duplicates').on('click', function() {
+            var button = $(this);
+            var resultDiv = $('#duplicate-results');
+            
+            button.prop('disabled', true).text('Checking...');
+            resultDiv.html('<div class="spinner is-active"></div>');
+            
+            $.ajax({
+                url: ajaxurl,
+                type: 'POST',
+                data: {
+                    action: 'fad_check_duplicates',
+                    nonce: '<?php echo wp_create_nonce('fad_admin_nonce'); ?>'
+                },
+                success: function(response) {
+                    if (response.success) {
+                        var data = response.data;
+                        var message = '<div class="notice notice-info"><p><strong>📊 Duplicate Check Results</strong></p></div>';
+                        
+                        message += '<table class="widefat"><tbody>';
+                        message += '<tr><td><strong>Total Doctors:</strong></td><td>' + data.total_doctors + '</td></tr>';
+                        message += '<tr><td><strong>Potential Name Duplicates:</strong></td><td>' + data.potential_name_duplicates + '</td></tr>';
+                        message += '<tr><td><strong>Missing Provider Keys:</strong></td><td>' + data.empty_provider_keys + '</td></tr>';
+                        message += '<tr><td><strong>Missing IDME:</strong></td><td>' + data.empty_idme + '</td></tr>';
+                        message += '<tr><td><strong>Duplicate Provider Keys:</strong></td><td>' + data.duplicate_provider_keys + '</td></tr>';
+                        message += '</tbody></table>';
+                        
+                        if (data.duplicate_provider_keys > 0) {
+                            message += '<div style="margin-top: 15px;"><button id="cleanup-duplicates-preview" class="button">Preview Cleanup</button></div>';
+                        }
+                        
+                        resultDiv.html(message);
+                    } else {
+                        resultDiv.html('<div class="notice notice-error"><p>Duplicate check failed: ' + response.data + '</p></div>');
+                    }
+                },
+                error: function() {
+                    resultDiv.html('<div class="notice notice-error"><p>Duplicate check request failed</p></div>');
+                },
+                complete: function() {
+                    button.prop('disabled', false).text('Check for Duplicates');
+                }
+            });
+        });
+        
+        // Preview Duplicate Cleanup
+        $(document).on('click', '#cleanup-duplicates-preview', function() {
+            var button = $(this);
+            var resultDiv = $('#duplicate-results');
+            
+            button.prop('disabled', true).text('Previewing...');
+            
+            $.ajax({
+                url: ajaxurl,
+                type: 'POST',
+                data: {
+                    action: 'fad_cleanup_duplicates',
+                    dry_run: 'true',
+                    nonce: '<?php echo wp_create_nonce('fad_admin_nonce'); ?>'
+                },
+                success: function(response) {
+                    if (response.success) {
+                        var data = response.data;
+                        var message = '<div class="notice notice-warning"><p><strong>🔍 Cleanup Preview (Dry Run)</strong></p></div>';
+                        
+                        message += '<p><strong>Summary:</strong> ' + data.kept + ' doctors would be kept, ' + data.removed + ' duplicates would be removed.</p>';
+                        
+                        if (data.actions.length > 0) {
+                            message += '<h4>Actions Preview:</h4>';
+                            message += '<table class="widefat"><thead><tr><th>Provider Key</th><th>Keep Doctor ID</th><th>Remove Doctor IDs</th></tr></thead><tbody>';
+                            
+                            for (var i = 0; i < Math.min(data.actions.length, 10); i++) {
+                                var action = data.actions[i];
+                                message += '<tr>';
+                                message += '<td>' + action.provider_key + '</td>';
+                                message += '<td>' + action.kept_doctor_id + '</td>';
+                                message += '<td>' + action.removed_doctor_ids.join(', ') + '</td>';
+                                message += '</tr>';
+                            }
+                            
+                            message += '</tbody></table>';
+                            
+                            if (data.actions.length > 10) {
+                                message += '<p><em>... and ' + (data.actions.length - 10) + ' more actions</em></p>';
+                            }
+                            
+                            message += '<div style="margin-top: 15px;">';
+                            message += '<button id="cleanup-duplicates-execute" class="button button-primary">✅ Execute Cleanup</button>';
+                            message += '<button id="cancel-cleanup" class="button">❌ Cancel</button>';
+                            message += '</div>';
+                        }
+                        
+                        resultDiv.html(message);
+                    } else {
+                        resultDiv.html('<div class="notice notice-error"><p>Cleanup preview failed: ' + response.data + '</p></div>');
+                    }
+                },
+                error: function() {
+                    resultDiv.html('<div class="notice notice-error"><p>Cleanup preview request failed</p></div>');
+                },
+                complete: function() {
+                    button.prop('disabled', false).text('Preview Cleanup');
+                }
+            });
+        });
+        
+        // Execute Duplicate Cleanup
+        $(document).on('click', '#cleanup-duplicates-execute', function() {
+            var button = $(this);
+            var resultDiv = $('#duplicate-results');
+            
+            if (!confirm('Are you sure you want to permanently remove duplicate records? This cannot be undone.')) {
+                return;
+            }
+            
+            button.prop('disabled', true).text('Cleaning up...');
+            
+            $.ajax({
+                url: ajaxurl,
+                type: 'POST',
+                data: {
+                    action: 'fad_cleanup_duplicates',
+                    dry_run: 'false',
+                    nonce: '<?php echo wp_create_nonce('fad_admin_nonce'); ?>'
+                },
+                success: function(response) {
+                    if (response.success) {
+                        var data = response.data;
+                        var message = '<div class="notice notice-success"><p><strong>✅ Cleanup Completed!</strong></p></div>';
+                        message += '<p>Kept ' + data.kept + ' doctors, removed ' + data.removed + ' duplicates.</p>';
+                        resultDiv.html(message);
+                    } else {
+                        resultDiv.html('<div class="notice notice-error"><p>Cleanup failed: ' + response.data + '</p></div>');
+                    }
+                },
+                error: function() {
+                    resultDiv.html('<div class="notice notice-error"><p>Cleanup request failed</p></div>');
+                },
+                complete: function() {
+                    button.prop('disabled', false).text('Execute Cleanup');
+                }
+            });
+        });
+        
+        // Cancel Cleanup
+        $(document).on('click', '#cancel-cleanup', function() {
+            $('#duplicate-results').empty();
         });
     });
     </script>

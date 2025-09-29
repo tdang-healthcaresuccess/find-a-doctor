@@ -84,21 +84,84 @@ class FAD_API_Client {
         if (json_last_error() !== JSON_ERROR_NONE) {
             return new WP_Error('json_error', 'Invalid JSON response from API', [
                 'body' => $body,
-                'json_error' => json_last_error_msg()
+                'json_error' => json_last_error_msg(),
+                'url' => $url
             ]);
+        }
+        
+        // Log the API response for debugging (only in debug mode)
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('FAD API Response for ' . $endpoint_key . ': ' . print_r($decoded, true));
         }
         
         return $decoded;
     }
     
     /**
-     * Search for physicians
+     * Search for physicians with pagination support
      *
      * @param array $search_params Search parameters
+     * @param int $page Page number (0-based)
      * @return array|WP_Error
      */
-    public static function search_physicians($search_params = []) {
+    public static function search_physicians($search_params = [], $page = 0) {
+        // Add page parameter to search params
+        $search_params['page'] = $page;
+        
         return self::make_request('search', [], $search_params);
+    }
+    
+    /**
+     * Get all physicians across all pages
+     *
+     * @param array $search_params Search parameters
+     * @param int $max_pages Maximum pages to fetch (safety limit)
+     * @return array|WP_Error
+     */
+    public static function search_all_physicians($search_params = [], $max_pages = 50) {
+        $all_physicians = [];
+        $current_page = 0;
+        $total_pages = null;
+        
+        while ($current_page < $max_pages) {
+            $response = self::search_physicians($search_params, $current_page);
+            
+            if (is_wp_error($response)) {
+                return $response;
+            }
+            
+            if (!isset($response['rows']) || !is_array($response['rows'])) {
+                break;
+            }
+            
+            // Add physicians from this page
+            $all_physicians = array_merge($all_physicians, $response['rows']);
+            
+            // Check pagination info
+            if (isset($response['pager'])) {
+                $pager = $response['pager'];
+                $total_pages = (int)$pager['total_pages'];
+                $current_page = (int)$pager['current_page'];
+                
+                // If we've reached the last page, break
+                if ($current_page >= $total_pages - 1) {
+                    break;
+                }
+            }
+            
+            $current_page++;
+        }
+        
+        // Return in the same format as single page response
+        return [
+            'rows' => $all_physicians,
+            'pager' => [
+                'current_page' => 0,
+                'total_items' => count($all_physicians),
+                'total_pages' => 1,
+                'items_per_page' => count($all_physicians)
+            ]
+        ];
     }
     
     /**

@@ -22,6 +22,11 @@ require_once plugin_dir_path(__FILE__) . 'includes/admin/manage-reference-data.p
 require_once plugin_dir_path(__FILE__) . 'includes/admin/api-import.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin/api-test-page.php';
 
+// Include debug helper in development
+if (defined('WP_DEBUG') && WP_DEBUG) {
+    require_once plugin_dir_path(__FILE__) . 'includes/api-debug.php';
+}
+
 
 // Dummy fallback if fnd_import_page isn't defined
 

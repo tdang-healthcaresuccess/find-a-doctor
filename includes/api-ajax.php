@@ -66,6 +66,7 @@ function fad_handle_import_from_api() {
         // Get search parameters
         $search_params = $_POST['search_params'] ?? [];
         $dry_run = isset($_POST['dry_run']) && $_POST['dry_run'] === 'true';
+        $import_all_pages = isset($_POST['import_all_pages']) && $_POST['import_all_pages'] === 'true';
         
         // Clean up empty parameters
         $search_params = array_filter($search_params, function($value) {
@@ -73,7 +74,7 @@ function fad_handle_import_from_api() {
         });
         
         // Import doctors from API
-        $result = fad_import_doctors_from_api($search_params, $dry_run);
+        $result = fad_import_doctors_from_api($search_params, $dry_run, $import_all_pages);
         
         if ($result['success']) {
             wp_send_json_success($result);
@@ -213,5 +214,54 @@ function fad_handle_admin_test_connection() {
         }
     } catch (Exception $e) {
         wp_send_json_error('Connection test failed: ' . $e->getMessage());
+    }
+}
+
+// AJAX handler for checking duplicates
+add_action('wp_ajax_fad_check_duplicates', 'fad_handle_check_duplicates');
+
+function fad_handle_check_duplicates() {
+    // Verify nonce
+    if (!wp_verify_nonce($_POST['nonce'], 'fad_admin_nonce')) {
+        wp_send_json_error('Invalid nonce');
+        return;
+    }
+    
+    // Check permissions
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+        return;
+    }
+    
+    try {
+        $results = fad_check_potential_duplicates();
+        wp_send_json_success($results);
+    } catch (Exception $e) {
+        wp_send_json_error('Duplicate check failed: ' . $e->getMessage());
+    }
+}
+
+// AJAX handler for cleaning up duplicates
+add_action('wp_ajax_fad_cleanup_duplicates', 'fad_handle_cleanup_duplicates');
+
+function fad_handle_cleanup_duplicates() {
+    // Verify nonce
+    if (!wp_verify_nonce($_POST['nonce'], 'fad_admin_nonce')) {
+        wp_send_json_error('Invalid nonce');
+        return;
+    }
+    
+    // Check permissions
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+        return;
+    }
+    
+    try {
+        $dry_run = isset($_POST['dry_run']) && $_POST['dry_run'] === 'true';
+        $results = fad_cleanup_duplicates($dry_run);
+        wp_send_json_success($results);
+    } catch (Exception $e) {
+        wp_send_json_error('Cleanup failed: ' . $e->getMessage());
     }
 }

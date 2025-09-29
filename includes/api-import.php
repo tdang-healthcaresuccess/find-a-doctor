@@ -12,9 +12,10 @@ require_once plugin_dir_path(__FILE__) . 'api-client.php';
  *
  * @param array $search_params Optional search parameters to filter physicians
  * @param bool $dry_run If true, only preview data without importing
+ * @param bool $import_all_pages If true, import from all pages (ignore limit)
  * @return array Import results
  */
-function fad_import_doctors_from_api($search_params = [], $dry_run = false) {
+function fad_import_doctors_from_api($search_params = [], $dry_run = false, $import_all_pages = false) {
     global $wpdb;
     
     $results = [
@@ -30,19 +31,46 @@ function fad_import_doctors_from_api($search_params = [], $dry_run = false) {
     
     try {
         // Get physicians from API
-        $api_response = FAD_API_Client::search_physicians($search_params);
+        if ($import_all_pages) {
+            // Remove limit parameter when importing all pages
+            unset($search_params['limit']);
+            $api_response = FAD_API_Client::search_all_physicians($search_params);
+        } else {
+            $api_response = FAD_API_Client::search_physicians($search_params);
+        }
         
         if (is_wp_error($api_response)) {
             $results['errors'][] = 'API Error: ' . $api_response->get_error_message();
             return $results;
         }
         
-        if (!isset($api_response['data']) || !is_array($api_response['data'])) {
-            $results['errors'][] = 'Invalid API response format';
+        if (!isset($api_response['rows']) || !is_array($api_response['rows'])) {
+            $results['errors'][] = 'Invalid API response format. Expected "rows" array not found.';
+            
+            // Add debug information about the actual response
+            if (is_array($api_response)) {
+                $results['errors'][] = 'API response keys: ' . implode(', ', array_keys($api_response));
+                
+                // Show first few characters of response for debugging
+                $response_preview = json_encode($api_response);
+                if (strlen($response_preview) > 500) {
+                    $response_preview = substr($response_preview, 0, 500) . '... (truncated)';
+                }
+                $results['errors'][] = 'API response preview: ' . $response_preview;
+            } else {
+                $results['errors'][] = 'API response type: ' . gettype($api_response);
+                $results['errors'][] = 'API response content: ' . print_r($api_response, true);
+            }
+            
             return $results;
         }
         
-        $physicians = $api_response['data'];
+        $physicians = $api_response['rows'];
+        
+        // Add pagination information to results
+        if (isset($api_response['pager'])) {
+            $results['pagination'] = $api_response['pager'];
+        }
         
         // Cache for lookups
         $language_cache = [];
@@ -160,13 +188,44 @@ function fad_process_physician_data($physician_data, &$language_cache, &$special
         }
     }
     
-    // Check if doctor exists by external ID or unique identifier
+    // Check if doctor exists by multiple methods (most robust duplicate detection)
     $existing_doctor_id = null;
-    if (!empty($doctor_data['idme'])) {
+    $duplicate_check_method = '';
+    
+    // Method 1: Check by provider_key (most reliable)
+    if (!empty($doctor_data['atlas_primary_key'])) {
+        $existing_doctor_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT doctorID FROM {$wpdb->prefix}doctors WHERE atlas_primary_key = %s",
+            $doctor_data['atlas_primary_key']
+        ));
+        if ($existing_doctor_id) {
+            $duplicate_check_method = 'provider_key';
+        }
+    }
+    
+    // Method 2: Check by idme (fallback)
+    if (!$existing_doctor_id && !empty($doctor_data['idme'])) {
         $existing_doctor_id = $wpdb->get_var($wpdb->prepare(
             "SELECT doctorID FROM {$wpdb->prefix}doctors WHERE idme = %s",
             $doctor_data['idme']
         ));
+        if ($existing_doctor_id) {
+            $duplicate_check_method = 'idme';
+        }
+    }
+    
+    // Method 3: Check by name + degree combination (last resort)
+    if (!$existing_doctor_id && !empty($doctor_data['first_name']) && !empty($doctor_data['last_name'])) {
+        $existing_doctor_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT doctorID FROM {$wpdb->prefix}doctors 
+             WHERE first_name = %s AND last_name = %s AND degree = %s",
+            $doctor_data['first_name'],
+            $doctor_data['last_name'],
+            $doctor_data['degree'] ?? ''
+        ));
+        if ($existing_doctor_id) {
+            $duplicate_check_method = 'name_degree';
+        }
     }
     
     $doctor_id = null;
@@ -181,6 +240,16 @@ function fad_process_physician_data($physician_data, &$language_cache, &$special
             $wpdb->update(
                 "{$wpdb->prefix}doctors",
                 $doctor_data,
+                ['doctorID' => $existing_doctor_id]
+            );
+            
+            // Clear existing relationships before adding new ones
+            $wpdb->delete(
+                "{$wpdb->prefix}doctor_language",
+                ['doctorID' => $existing_doctor_id]
+            );
+            $wpdb->delete(
+                "{$wpdb->prefix}doctor_specialties", 
                 ['doctorID' => $existing_doctor_id]
             );
         }
@@ -204,16 +273,19 @@ function fad_process_physician_data($physician_data, &$language_cache, &$special
     $preview_data = [
         'name' => ($doctor_data['first_name'] ?? '') . ' ' . ($doctor_data['last_name'] ?? ''),
         'action' => $action,
-        'reason' => $action === 'updated' ? 'Doctor already exists, will be updated' : 'New doctor will be added',
+        'reason' => $action === 'updated' ? 
+            'Doctor already exists (found by ' . $duplicate_check_method . '), will be updated' : 
+            'New doctor will be added',
         'data' => $doctor_data,
         'languages' => [],
-        'specialties' => []
+        'specialties' => [],
+        'duplicate_check_method' => $duplicate_check_method ?? 'none'
     ];
     
-    // Process languages
-    if (isset($physician_data['languages']) && is_array($physician_data['languages'])) {
-        foreach ($physician_data['languages'] as $language) {
-            $lang_name = trim($language);
+    // Process languages from languages_spoken_by_doctor
+    if (isset($physician_data['languages_spoken_by_doctor']) && is_array($physician_data['languages_spoken_by_doctor'])) {
+        foreach ($physician_data['languages_spoken_by_doctor'] as $language_obj) {
+            $lang_name = trim($language_obj['name'] ?? '');
             if (empty($lang_name)) continue;
             
             $preview_data['languages'][] = $lang_name;
@@ -240,8 +312,8 @@ function fad_process_physician_data($physician_data, &$language_cache, &$special
     
     // Process specialties
     if (isset($physician_data['specialties']) && is_array($physician_data['specialties'])) {
-        foreach ($physician_data['specialties'] as $specialty) {
-            $specialty_name = trim($specialty);
+        foreach ($physician_data['specialties'] as $specialty_obj) {
+            $specialty_name = trim($specialty_obj['name'] ?? '');
             if (empty($specialty_name)) continue;
             
             $preview_data['specialties'][] = $specialty_name;
@@ -276,68 +348,119 @@ function fad_process_physician_data($physician_data, &$language_cache, &$special
  * @return array Mapped database fields
  */
 function fad_map_api_to_db_fields($api_data) {
-    // This mapping will need to be adjusted based on the actual API response structure
-    // The following is a template that should be customized based on the real API response
-    
     $mapped = [];
     
-    // Direct field mappings (adjust field names based on actual API response)
-    $field_mappings = [
-        'atlas_primary_key' => 'provider_key',
-        'idme' => 'id',
-        'first_name' => 'first_name',
-        'last_name' => 'last_name',
-        'email' => 'email',
-        'phone_number' => 'phone',
-        'fax_number' => 'fax',
-        'degree' => 'degree',
-        'gender' => 'gender',
-        'medical_school' => 'medical_school',
-        'practice_name' => 'practice_name',
-        'prov_status' => 'status',
-        'address' => 'address',
-        'city' => 'city',
-        'state' => 'state',
-        'zip' => 'zip_code',
-        'county' => 'county',
-        'biography' => 'biography',
-        'profile_img_url' => 'profile_image'
-    ];
+    // Direct field mappings based on actual API response
+    $mapped['atlas_primary_key'] = $api_data['provider_key'] ?? '';
+    $mapped['idme'] = $api_data['provider_key'] ?? ''; // Using provider_key as unique identifier
+    $mapped['first_name'] = $api_data['first_name'] ?? '';
+    $mapped['last_name'] = $api_data['last_name'] ?? '';
+    $mapped['email'] = ''; // Not provided in API response
+    $mapped['degree'] = $api_data['suffix'] ?? '';
+    $mapped['biography'] = $api_data['about_me'] ?? '';
+    $mapped['profile_img_url'] = $api_data['picture'] ?? '';
     
-    foreach ($field_mappings as $db_field => $api_field) {
-        if (isset($api_data[$api_field])) {
-            $mapped[$db_field] = $api_data[$api_field];
-        }
+    // Extract gender from gender array
+    if (isset($api_data['gender']) && is_array($api_data['gender']) && !empty($api_data['gender'])) {
+        $mapped['gender'] = $api_data['gender'][0]['name'] ?? '';
+    } else {
+        $mapped['gender'] = '';
     }
     
-    // Boolean field mappings
-    $boolean_fields = ['primary_care', 'is_ab_directory', 'is_bt_directory'];
-    foreach ($boolean_fields as $field) {
-        if (isset($api_data[$field])) {
-            $value = $api_data[$field];
-            if (is_bool($value)) {
-                $mapped[$field] = $value ? 1 : 0;
-            } elseif (is_string($value)) {
-                $mapped[$field] = (strtolower($value) === 'yes' || strtolower($value) === 'true') ? 1 : 0;
+    // Extract phone and address from location array (use first location)
+    if (isset($api_data['location']) && is_array($api_data['location']) && !empty($api_data['location'])) {
+        $location = $api_data['location'][0];
+        $mapped['phone_number'] = $location['address_phonenumber'] ?? '';
+        $mapped['fax_number'] = ''; // Not provided in API
+        $mapped['address'] = $location['address_line1'] ?? '';
+        $mapped['city'] = $location['locality'] ?? '';
+        $mapped['state'] = $location['administrative_area'] ?? '';
+        $mapped['zip'] = $location['postal_code'] ?? '';
+        $mapped['county'] = ''; // Not provided in API
+        $mapped['practice_name'] = $location['organization'] ?? '';
+    } else {
+        // Set empty values if no location data
+        $mapped['phone_number'] = '';
+        $mapped['fax_number'] = '';
+        $mapped['address'] = '';
+        $mapped['city'] = '';
+        $mapped['state'] = '';
+        $mapped['zip'] = '';
+        $mapped['county'] = '';
+        $mapped['practice_name'] = '';
+    }
+    
+    // Medical school from education_training
+    $mapped['medical_school'] = '';
+    if (isset($api_data['education_training']) && is_array($api_data['education_training'])) {
+        foreach ($api_data['education_training'] as $education) {
+            if (strpos(strtolower($education), 'medical school') !== false) {
+                $mapped['medical_school'] = trim(str_replace('||Medical School, ', '', $education));
+                break;
             }
         }
     }
     
-    // Complex field mappings (arrays converted to comma-separated strings)
-    $array_fields = ['internship', 'certification', 'residency', 'fellowship', 'Insurances', 'hospitalNames'];
-    foreach ($array_fields as $field) {
-        if (isset($api_data[$field]) && is_array($api_data[$field])) {
-            $mapped[$field] = implode(', ', array_filter($api_data[$field]));
+    // Education fields from education_training array
+    $internship = [];
+    $residency = [];
+    $fellowship = [];
+    
+    if (isset($api_data['education_training']) && is_array($api_data['education_training'])) {
+        foreach ($api_data['education_training'] as $education) {
+            $education = trim($education);
+            if (strpos(strtolower($education), 'internship') !== false) {
+                $internship[] = str_replace('||Internship, ', '', $education);
+            } elseif (strpos(strtolower($education), 'residency') !== false) {
+                $residency[] = str_replace('||Residency, ', '', $education);
+            } elseif (strpos(strtolower($education), 'fellowship') !== false) {
+                $fellowship[] = str_replace('||Fellowship, ', '', $education);
+            }
         }
     }
     
-    // Network fields
-    if (isset($api_data['networks']) && is_array($api_data['networks'])) {
-        $networks = $api_data['networks'];
-        $mapped['aco_active_networks'] = isset($networks['aco']) ? implode(', ', $networks['aco']) : '';
-        $mapped['hmo_active_networks'] = isset($networks['hmo']) ? implode(', ', $networks['hmo']) : '';
-        $mapped['ppo_active_network'] = isset($networks['ppo']) ? implode(', ', $networks['ppo']) : '';
+    $mapped['internship'] = implode(', ', $internship);
+    $mapped['residency'] = implode(', ', $residency);
+    $mapped['fellowship'] = implode(', ', $fellowship);
+    
+    // Board certifications
+    $certifications = [];
+    if (isset($api_data['board_certification']) && is_array($api_data['board_certification'])) {
+        foreach ($api_data['board_certification'] as $cert) {
+            // Extract certification name (after the last |)
+            $parts = explode('|', $cert);
+            if (count($parts) >= 3) {
+                $certifications[] = end($parts);
+            }
+        }
     }
+    $mapped['certification'] = implode(', ', $certifications);
+    
+    // Boolean fields
+    $mapped['primary_care'] = 0; // Not clearly defined in API
+    $mapped['is_ab_directory'] = 0; // Not provided in API
+    $mapped['is_bt_directory'] = 0; // Not provided in API
+    
+    // Provider status (assume active if accepts new patients)
+    $mapped['prov_status'] = ($api_data['accepts_new_patients'] ?? false) ? 'Active' : 'Inactive';
+    
+    // Network information
+    $mapped['aco_active_networks'] = isset($api_data['aco_networks']) ? implode(', ', $api_data['aco_networks']) : '';
+    $mapped['hmo_active_networks'] = isset($api_data['hmo_networks']) ? implode(', ', $api_data['hmo_networks']) : '';
+    $mapped['ppo_active_network'] = isset($api_data['ppo_networks']) ? implode(', ', $api_data['ppo_networks']) : '';
+    
+    // Hospital affiliations
+    $mapped['hospitalNames'] = isset($api_data['hospital_affiliations']) ? implode(', ', $api_data['hospital_affiliations']) : '';
+    
+    // Insurance networks (combine all network types)
+    $all_networks = array_merge(
+        $api_data['hmo_networks'] ?? [],
+        $api_data['ppo_networks'] ?? [],
+        $api_data['aco_networks'] ?? [],
+        $api_data['acn_networks'] ?? [],
+        $api_data['medi_cal_networks'] ?? []
+    );
+    $mapped['Insurances'] = implode(', ', array_unique($all_networks));
     
     return $mapped;
 }
@@ -392,7 +515,39 @@ function fad_sync_languages($api_response) {
     
     $synced = 0;
     
-    if (isset($api_response['data']) && is_array($api_response['data'])) {
+    // The languages endpoint might return different format, 
+    // but we can also extract from the search results
+    if (isset($api_response['rows']) && is_array($api_response['rows'])) {
+        $all_languages = [];
+        
+        // Extract all unique languages from physician data
+        foreach ($api_response['rows'] as $physician) {
+            if (isset($physician['languages_spoken_by_doctor']) && is_array($physician['languages_spoken_by_doctor'])) {
+                foreach ($physician['languages_spoken_by_doctor'] as $lang_obj) {
+                    $lang_name = trim($lang_obj['name'] ?? '');
+                    if (!empty($lang_name)) {
+                        $all_languages[] = $lang_name;
+                    }
+                }
+            }
+        }
+        
+        // Remove duplicates and sync
+        $unique_languages = array_unique($all_languages);
+        
+        foreach ($unique_languages as $language_name) {
+            $existing = $wpdb->get_var($wpdb->prepare(
+                "SELECT languageID FROM {$wpdb->prefix}languages WHERE language = %s",
+                $language_name
+            ));
+            
+            if (!$existing) {
+                $wpdb->insert("{$wpdb->prefix}languages", ['language' => $language_name]);
+                $synced++;
+            }
+        }
+    } elseif (isset($api_response['data']) && is_array($api_response['data'])) {
+        // Handle if API returns direct language list
         foreach ($api_response['data'] as $language_data) {
             $language_name = trim($language_data['name'] ?? $language_data['language'] ?? '');
             
@@ -420,12 +575,155 @@ function fad_sync_languages($api_response) {
  * @return int Number of hospitals processed
  */
 function fad_sync_hospitals($api_response) {
-    // This would need a hospitals table or could be stored as reference data
-    // For now, we'll just return count of hospitals in response
+    // Extract unique hospital affiliations from physician data
+    $all_hospitals = [];
     
-    if (isset($api_response['data']) && is_array($api_response['data'])) {
+    if (isset($api_response['rows']) && is_array($api_response['rows'])) {
+        foreach ($api_response['rows'] as $physician) {
+            if (isset($physician['hospital_affiliations']) && is_array($physician['hospital_affiliations'])) {
+                $all_hospitals = array_merge($all_hospitals, $physician['hospital_affiliations']);
+            }
+        }
+        
+        return count(array_unique($all_hospitals));
+    } elseif (isset($api_response['data']) && is_array($api_response['data'])) {
         return count($api_response['data']);
     }
     
     return 0;
+}
+
+/**
+ * Check for potential duplicates in the database
+ *
+ * @return array Summary of potential duplicates
+ */
+function fad_check_potential_duplicates() {
+    global $wpdb;
+    
+    $results = [
+        'total_doctors' => 0,
+        'potential_name_duplicates' => 0,
+        'empty_provider_keys' => 0,
+        'empty_idme' => 0,
+        'duplicate_provider_keys' => 0,
+        'duplicate_details' => []
+    ];
+    
+    // Total doctors
+    $results['total_doctors'] = $wpdb->get_var(
+        "SELECT COUNT(*) FROM {$wpdb->prefix}doctors"
+    );
+    
+    // Check for name-based duplicates
+    $name_duplicates = $wpdb->get_results(
+        "SELECT first_name, last_name, COUNT(*) as count 
+         FROM {$wpdb->prefix}doctors 
+         WHERE first_name != '' AND last_name != ''
+         GROUP BY first_name, last_name 
+         HAVING count > 1",
+        ARRAY_A
+    );
+    $results['potential_name_duplicates'] = count($name_duplicates);
+    
+    // Check for empty provider keys
+    $results['empty_provider_keys'] = $wpdb->get_var(
+        "SELECT COUNT(*) FROM {$wpdb->prefix}doctors 
+         WHERE atlas_primary_key IS NULL OR atlas_primary_key = ''"
+    );
+    
+    // Check for empty idme
+    $results['empty_idme'] = $wpdb->get_var(
+        "SELECT COUNT(*) FROM {$wpdb->prefix}doctors 
+         WHERE idme IS NULL OR idme = ''"
+    );
+    
+    // Check for duplicate provider keys
+    $provider_key_duplicates = $wpdb->get_results(
+        "SELECT atlas_primary_key, COUNT(*) as count 
+         FROM {$wpdb->prefix}doctors 
+         WHERE atlas_primary_key != '' AND atlas_primary_key IS NOT NULL
+         GROUP BY atlas_primary_key 
+         HAVING count > 1",
+        ARRAY_A
+    );
+    $results['duplicate_provider_keys'] = count($provider_key_duplicates);
+    
+    // Get detailed duplicate information
+    if (!empty($name_duplicates)) {
+        $results['duplicate_details']['name_duplicates'] = array_slice($name_duplicates, 0, 5); // First 5
+    }
+    
+    if (!empty($provider_key_duplicates)) {
+        $results['duplicate_details']['provider_key_duplicates'] = array_slice($provider_key_duplicates, 0, 5); // First 5
+    }
+    
+    return $results;
+}
+
+/**
+ * Clean up duplicate doctors based on provider_key priority
+ *
+ * @param bool $dry_run If true, only show what would be cleaned
+ * @return array Cleanup results
+ */
+function fad_cleanup_duplicates($dry_run = true) {
+    global $wpdb;
+    
+    $results = [
+        'success' => false,
+        'removed' => 0,
+        'kept' => 0,
+        'errors' => [],
+        'dry_run' => $dry_run,
+        'actions' => []
+    ];
+    
+    try {
+        // Find duplicates by provider_key (keep the most recent one)
+        $duplicate_groups = $wpdb->get_results(
+            "SELECT atlas_primary_key, GROUP_CONCAT(doctorID ORDER BY created_at DESC) as doctor_ids
+             FROM {$wpdb->prefix}doctors 
+             WHERE atlas_primary_key != '' AND atlas_primary_key IS NOT NULL
+             GROUP BY atlas_primary_key 
+             HAVING COUNT(*) > 1",
+            ARRAY_A
+        );
+        
+        foreach ($duplicate_groups as $group) {
+            $doctor_ids = explode(',', $group['doctor_ids']);
+            $keep_id = array_shift($doctor_ids); // Keep the first (most recent)
+            $remove_ids = $doctor_ids; // Remove the rest
+            
+            $results['kept']++;
+            $results['removed'] += count($remove_ids);
+            
+            $action = [
+                'provider_key' => $group['atlas_primary_key'],
+                'kept_doctor_id' => $keep_id,
+                'removed_doctor_ids' => $remove_ids
+            ];
+            
+            if (!$dry_run) {
+                // Actually remove duplicates
+                foreach ($remove_ids as $remove_id) {
+                    // Delete relationships first
+                    $wpdb->delete("{$wpdb->prefix}doctor_language", ['doctorID' => $remove_id]);
+                    $wpdb->delete("{$wpdb->prefix}doctor_specialties", ['doctorID' => $remove_id]);
+                    
+                    // Delete doctor record
+                    $wpdb->delete("{$wpdb->prefix}doctors", ['doctorID' => $remove_id]);
+                }
+            }
+            
+            $results['actions'][] = $action;
+        }
+        
+        $results['success'] = true;
+        
+    } catch (Exception $e) {
+        $results['errors'][] = 'Cleanup failed: ' . $e->getMessage();
+    }
+    
+    return $results;
 }
