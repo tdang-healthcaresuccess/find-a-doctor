@@ -69,3 +69,38 @@ function fad_get_terms_for_doctor($type, $doctor_id) {
     $names = $wpdb->get_col($wpdb->prepare($sql, $doctor_id));
     return $names ? array_values($names) : [];
 }
+
+/**
+ * Format geolocation coordinates for display
+ *
+ * @param float|null $latitude
+ * @param float|null $longitude
+ * @param int $precision Number of decimal places
+ * @return string Formatted coordinates or empty string
+ */
+function fad_format_geolocation($latitude, $longitude, $precision = 6) {
+    if ($latitude === null || $longitude === null) {
+        return '';
+    }
+    
+    if (!is_numeric($latitude) || !is_numeric($longitude)) {
+        return '';
+    }
+    
+    return number_format((float)$latitude, $precision, '.', '') . ', ' . 
+           number_format((float)$longitude, $precision, '.', '');
+}
+
+/**
+ * Check if geolocation coordinates are valid
+ *
+ * @param float|null $latitude
+ * @param float|null $longitude
+ * @return bool
+ */
+function fad_has_valid_geolocation($latitude, $longitude) {
+    return $latitude !== null && $longitude !== null && 
+           is_numeric($latitude) && is_numeric($longitude) &&
+           $latitude >= -90 && $latitude <= 90 &&
+           $longitude >= -180 && $longitude <= 180;
+}

@@ -36,6 +36,8 @@ function fnd_create_tables() {
                 state VARCHAR(20),
                 zip VARCHAR(10),
                 county VARCHAR(20),
+                latitude DECIMAL(10, 8) NULL,
+                longitude DECIMAL(11, 8) NULL,
                 is_ab_directory BOOLEAN,
                 is_bt_directory BOOLEAN,
                 Insurances LONGTEXT,

@@ -53,12 +53,30 @@ function fnd_render_doctor_list_page() {
     echo ' <input type="submit" class="button" value="Search">';
     echo '</form></div><br>';
     echo '<table class="wp-list-table widefat fixed striped"><thead><tr>
-        <th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Gender</th><th>Degree</th><th>IDME</th><th>Actions</th>
+        <th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Gender</th><th>Degree</th><th>Location</th><th>Actions</th>
     </tr></thead><tbody>';
 
     if (!empty($doctors)) {
         foreach ($doctors as $doc) {
             $full_name = esc_html($doc->first_name . ' ' . $doc->last_name);
+            
+            // Format location info
+            $location_info = '';
+            if (!empty($doc->city) && !empty($doc->state)) {
+                $location_info = esc_html($doc->city . ', ' . $doc->state);
+                
+                // Add geolocation if available
+                if (fad_has_valid_geolocation($doc->latitude, $doc->longitude)) {
+                    $location_info .= '<br><small style="color: #666;">📍 ' . 
+                                    fad_format_geolocation($doc->latitude, $doc->longitude, 4) . '</small>';
+                }
+            } elseif (fad_has_valid_geolocation($doc->latitude, $doc->longitude)) {
+                $location_info = '<small style="color: #666;">📍 ' . 
+                               fad_format_geolocation($doc->latitude, $doc->longitude, 4) . '</small>';
+            } else {
+                $location_info = '<em style="color: #999;">No location</em>';
+            }
+            
             echo "<tr>
                 <td>{$doc->doctorID}</td>
                 <td>{$full_name}</td>
@@ -66,7 +84,7 @@ function fnd_render_doctor_list_page() {
                 <td>{$doc->phone_number}</td>
                 <td>{$doc->gender}</td>
                 <td>{$doc->degree}</td>
-                <td>{$doc->idme}</td>
+                <td>{$location_info}</td>
                 <td>
                     <a href='admin.php?page=doctor-edit&id={$doc->doctorID}' class='button'>Edit</a>
                     <a href='admin.php?page=doctor-list&fnd_delete={$doc->doctorID}' class='button' onclick=\"return confirm('Are you sure you want to delete this doctor?')\">Delete</a>
@@ -74,7 +92,7 @@ function fnd_render_doctor_list_page() {
             </tr>";
         }
     } else {
-        echo "<tr><td colspan='7' style = 'text-align:center'>No data found.</td></tr>";
+        echo "<tr><td colspan='8' style = 'text-align:center'>No data found.</td></tr>";
     }
 
     echo '</tbody></table>';

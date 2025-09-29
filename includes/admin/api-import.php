@@ -259,7 +259,7 @@ function fnd_render_api_import_page() {
                             if (data.preview_data && data.preview_data.length > 0) {
                                 message += '<div class="card"><h3>Preview Data (First 10 physicians)</h3>';
                                 message += '<table class="widefat"><thead><tr>';
-                                message += '<th>Name</th><th>Action</th><th>Specialties</th><th>Languages</th><th>City, State</th>';
+                                message += '<th>Name</th><th>Action</th><th>Specialties</th><th>Languages</th><th>City, State</th><th>Geolocation</th>';
                                 message += '</tr></thead><tbody>';
                                 
                                 var previewLimit = Math.min(data.preview_data.length, 10);
@@ -267,6 +267,14 @@ function fnd_render_api_import_page() {
                                     var physician = data.preview_data[i];
                                     var actionClass = physician.action === 'imported' ? 'success' : 
                                                     physician.action === 'updated' ? 'warning' : 'error';
+                                    
+                                    // Format geolocation display
+                                    var geoDisplay = '-';
+                                    if (physician.data.latitude && physician.data.longitude) {
+                                        geoDisplay = parseFloat(physician.data.latitude).toFixed(6) + ', ' + parseFloat(physician.data.longitude).toFixed(6);
+                                    } else if (physician.data.latitude || physician.data.longitude) {
+                                        geoDisplay = 'Partial: ' + (physician.data.latitude || 'N/A') + ', ' + (physician.data.longitude || 'N/A');
+                                    }
                                     
                                     message += '<tr>';
                                     message += '<td><strong>' + physician.name + '</strong></td>';
@@ -279,6 +287,7 @@ function fnd_render_api_import_page() {
                                     message += '<td>' + (physician.specialties ? physician.specialties.join(', ') : '-') + '</td>';
                                     message += '<td>' + (physician.languages ? physician.languages.join(', ') : '-') + '</td>';
                                     message += '<td>' + (physician.data.city || '') + ', ' + (physician.data.state || '') + '</td>';
+                                    message += '<td>' + geoDisplay + '</td>';
                                     message += '</tr>';
                                 }
                                 

@@ -439,6 +439,63 @@ function fad_map_api_to_db_fields($api_data) {
         $mapped['zip'] = $location['postal_code'] ?? '';
         $mapped['county'] = ''; // Not provided in API
         $mapped['practice_name'] = $location['organization'] ?? '';
+        
+        // Extract geolocation data from location array
+        $mapped['latitude'] = null;
+        $mapped['longitude'] = null;
+        
+        // Check for direct lat/lng fields in location
+        if (isset($location['latitude']) && is_numeric($location['latitude'])) {
+            $mapped['latitude'] = (float)$location['latitude'];
+        }
+        if (isset($location['longitude']) && is_numeric($location['longitude'])) {
+            $mapped['longitude'] = (float)$location['longitude'];
+        }
+        
+        // Alternative field names that might contain coordinates
+        if ($mapped['latitude'] === null && isset($location['lat']) && is_numeric($location['lat'])) {
+            $mapped['latitude'] = (float)$location['lat'];
+        }
+        if ($mapped['longitude'] === null && isset($location['lng']) && is_numeric($location['lng'])) {
+            $mapped['longitude'] = (float)$location['lng'];
+        }
+        if ($mapped['longitude'] === null && isset($location['lon']) && is_numeric($location['lon'])) {
+            $mapped['longitude'] = (float)$location['lon'];
+        }
+        
+        // Check for geolocation object in location
+        if (isset($location['geolocation'])) {
+            $geo = $location['geolocation'];
+            if (is_array($geo)) {
+                if ($mapped['latitude'] === null && isset($geo['latitude']) && is_numeric($geo['latitude'])) {
+                    $mapped['latitude'] = (float)$geo['latitude'];
+                }
+                if ($mapped['longitude'] === null && isset($geo['longitude']) && is_numeric($geo['longitude'])) {
+                    $mapped['longitude'] = (float)$geo['longitude'];
+                }
+                if ($mapped['latitude'] === null && isset($geo['lat']) && is_numeric($geo['lat'])) {
+                    $mapped['latitude'] = (float)$geo['lat'];
+                }
+                if ($mapped['longitude'] === null && isset($geo['lng']) && is_numeric($geo['lng'])) {
+                    $mapped['longitude'] = (float)$geo['lng'];
+                }
+            }
+        }
+        
+        // Check for coordinates array in location
+        if (isset($location['coordinates']) && is_array($location['coordinates'])) {
+            $coords = $location['coordinates'];
+            // GeoJSON format: [longitude, latitude]
+            if (count($coords) >= 2) {
+                if ($mapped['longitude'] === null && is_numeric($coords[0])) {
+                    $mapped['longitude'] = (float)$coords[0];
+                }
+                if ($mapped['latitude'] === null && is_numeric($coords[1])) {
+                    $mapped['latitude'] = (float)$coords[1];
+                }
+            }
+        }
+        
     } else {
         // Set empty values if no location data
         $mapped['phone_number'] = '';
@@ -449,6 +506,21 @@ function fad_map_api_to_db_fields($api_data) {
         $mapped['zip'] = '';
         $mapped['county'] = '';
         $mapped['practice_name'] = '';
+        $mapped['latitude'] = null;
+        $mapped['longitude'] = null;
+    }
+    
+    // Extract geolocation data from top-level API field (primary source)
+    // This will override any location-based coordinates if present
+    if (isset($api_data['geolocation']) && is_array($api_data['geolocation']) && !empty($api_data['geolocation'])) {
+        $geo_string = $api_data['geolocation'][0]; // Get first geolocation entry
+        if (is_string($geo_string) && strpos($geo_string, ',') !== false) {
+            $coords = array_map('trim', explode(',', $geo_string));
+            if (count($coords) >= 2 && is_numeric($coords[0]) && is_numeric($coords[1])) {
+                $mapped['latitude'] = (float)$coords[0];
+                $mapped['longitude'] = (float)$coords[1];
+            }
+        }
     }
     
     // Medical school from education_training

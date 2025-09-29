@@ -16,6 +16,23 @@ class FAD_GraphQL_Activator {
             $wpdb->query("ALTER TABLE {$t_doctors} ADD COLUMN slug VARCHAR(191)");
         }
 
+        // Check and add geolocation columns
+        $has_latitude = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'latitude'",
+            $t_doctors
+        ));
+        if ( ! $has_latitude ) {
+            $wpdb->query("ALTER TABLE {$t_doctors} ADD COLUMN latitude DECIMAL(10, 8) NULL");
+        }
+
+        $has_longitude = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'longitude'",
+            $t_doctors
+        ));
+        if ( ! $has_longitude ) {
+            $wpdb->query("ALTER TABLE {$t_doctors} ADD COLUMN longitude DECIMAL(11, 8) NULL");
+        }
+
         @ $wpdb->query("CREATE UNIQUE INDEX idx_doctors_slug ON {$t_doctors} (slug)");
         $t_ds = $wpdb->prefix . 'doctor_specialties';
         $t_dl = $wpdb->prefix . 'doctor_language';
