@@ -118,7 +118,7 @@ class FAD_API_Client {
      * @param int $max_pages Maximum pages to fetch (safety limit)
      * @return array|WP_Error
      */
-    public static function search_all_physicians($search_params = [], $max_pages = 50) {
+    public static function search_all_physicians($search_params = [], $max_pages = 500) {
         $all_physicians = [];
         $current_page = 0;
         $total_pages = null;

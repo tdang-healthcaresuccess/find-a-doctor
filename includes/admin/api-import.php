@@ -40,7 +40,7 @@ function fnd_render_api_import_page() {
                             
                             <label for="search-limit">Limit:</label>
                             <input type="number" id="search-limit" name="limit" value="100" min="1" max="1000" />
-                            <small>Maximum number of physicians to import (1-1000, ignored if "Import All Pages" is checked)</small>
+                            <small>Maximum number of physicians to import (1-1000). <strong>Note:</strong> If "Import All Pages" is checked, this limit is ignored and ALL ~3,237 physicians will be imported.</small>
                             <br><br>
                             
                             <label>
@@ -131,6 +131,20 @@ function fnd_render_api_import_page() {
     
     <script>
     jQuery(document).ready(function($) {
+        // Handle Import All Pages checkbox
+        $('#import-all-pages').on('change', function() {
+            var limitField = $('#search-limit');
+            var limitLabel = $('label[for="search-limit"]');
+            
+            if ($(this).is(':checked')) {
+                limitField.prop('disabled', true).css('opacity', '0.5');
+                limitLabel.css('opacity', '0.5');
+            } else {
+                limitField.prop('disabled', false).css('opacity', '1');
+                limitLabel.css('opacity', '1');
+            }
+        });
+        
         // Test API Connection
         $('#test-api-connection').on('click', function() {
             var button = $(this);
@@ -227,7 +241,19 @@ function fnd_render_api_import_page() {
                         
                         if (isDryRun) {
                             message = '<div class="notice notice-info"><p><strong>📋 Preview Results (Dry Run)</strong><br>';
-                            message += data.message + '</p></div>';
+                            message += data.message;
+                            
+                            // Add pagination info if available
+                            if (data.pagination) {
+                                var pager = data.pagination;
+                                if (pager.limited_to) {
+                                    message += '<br><strong>Note:</strong> Limited to ' + pager.limited_to + ' physicians';
+                                } else if (pager.total_items) {
+                                    message += '<br><strong>Total found:</strong> ' + pager.total_items + ' physicians';
+                                }
+                            }
+                            
+                            message += '</p></div>';
                             
                             // Show detailed preview data
                             if (data.preview_data && data.preview_data.length > 0) {
@@ -274,7 +300,19 @@ function fnd_render_api_import_page() {
                             message = '<div class="notice notice-success"><p><strong>✅ Import Completed!</strong><br>';
                             message += 'Imported: ' + data.imported + '<br>';
                             message += 'Updated: ' + data.updated + '<br>';
-                            message += 'Skipped: ' + data.skipped + '</p></div>';
+                            message += 'Skipped: ' + data.skipped;
+                            
+                            // Add pagination info if available
+                            if (data.pagination) {
+                                var pager = data.pagination;
+                                if (pager.limited_to) {
+                                    message += '<br>Limited to: ' + pager.limited_to + ' physicians';
+                                } else if (pager.total_items) {
+                                    message += '<br>Total processed: ' + pager.total_items + ' physicians';
+                                }
+                            }
+                            
+                            message += '</p></div>';
                         }
                         
                         if (data.errors && data.errors.length > 0) {

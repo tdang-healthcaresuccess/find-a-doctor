@@ -32,11 +32,72 @@ function fad_import_doctors_from_api($search_params = [], $dry_run = false, $imp
     try {
         // Get physicians from API
         if ($import_all_pages) {
-            // Remove limit parameter when importing all pages
+            // Remove limit parameter when importing all pages and fetch all pages
             unset($search_params['limit']);
             $api_response = FAD_API_Client::search_all_physicians($search_params);
         } else {
-            $api_response = FAD_API_Client::search_physicians($search_params);
+            // For limited imports, we need to handle pagination manually to respect the limit
+            $limit = isset($search_params['limit']) ? (int)$search_params['limit'] : 100;
+            $physicians = [];
+            $current_page = 0;
+            $fetched_count = 0;
+            
+            // Remove limit from API params since we'll handle it ourselves
+            $api_search_params = $search_params;
+            unset($api_search_params['limit']);
+            
+            while ($fetched_count < $limit) {
+                $page_response = FAD_API_Client::search_physicians($api_search_params, $current_page);
+                
+                if (is_wp_error($page_response)) {
+                    $api_response = $page_response;
+                    break;
+                }
+                
+                if (!isset($page_response['rows']) || !is_array($page_response['rows'])) {
+                    break;
+                }
+                
+                $page_physicians = $page_response['rows'];
+                
+                // Only take what we need to reach the limit
+                $remaining_needed = $limit - $fetched_count;
+                if (count($page_physicians) > $remaining_needed) {
+                    $page_physicians = array_slice($page_physicians, 0, $remaining_needed);
+                }
+                
+                $physicians = array_merge($physicians, $page_physicians);
+                $fetched_count += count($page_physicians);
+                
+                // Check if we've reached the limit or there are no more pages
+                if ($fetched_count >= $limit || count($page_physicians) == 0) {
+                    break;
+                }
+                
+                // Check pagination info to see if there are more pages
+                if (isset($page_response['pager'])) {
+                    $pager = $page_response['pager'];
+                    $total_pages = (int)$pager['total_pages'];
+                    
+                    if ($current_page >= $total_pages - 1) {
+                        break; // No more pages
+                    }
+                }
+                
+                $current_page++;
+            }
+            
+            // Create a response in the same format
+            $api_response = [
+                'rows' => $physicians,
+                'pager' => [
+                    'current_page' => 0,
+                    'total_items' => count($physicians),
+                    'total_pages' => 1,
+                    'items_per_page' => count($physicians),
+                    'limited_to' => $limit
+                ]
+            ];
         }
         
         if (is_wp_error($api_response)) {
