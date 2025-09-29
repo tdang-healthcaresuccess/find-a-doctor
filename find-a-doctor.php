@@ -11,10 +11,16 @@ defined('ABSPATH') || exit;
 // Required files
 require_once plugin_dir_path(__FILE__) . 'includes/create-tables.php';
 require_once plugin_dir_path(__FILE__) . 'includes/import-data.php';
+require_once plugin_dir_path(__FILE__) . 'includes/api-config.php';
+require_once plugin_dir_path(__FILE__) . 'includes/api-client.php';
+require_once plugin_dir_path(__FILE__) . 'includes/api-import.php';
+require_once plugin_dir_path(__FILE__) . 'includes/api-ajax.php';
 require_once plugin_dir_path(__FILE__) . 'includes/rest-api.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin/doctor-list.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin/doctor-edit.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin/manage-reference-data.php';
+require_once plugin_dir_path(__FILE__) . 'includes/admin/api-import.php';
+require_once plugin_dir_path(__FILE__) . 'includes/admin/api-test-page.php';
 
 
 // Dummy fallback if fnd_import_page isn't defined
@@ -23,11 +29,19 @@ require_once plugin_dir_path(__FILE__) . 'includes/admin/manage-reference-data.p
 // Menu structure
 add_action('admin_menu', function () {
     add_menu_page(
-        'Find a Doctor', 'Find a Doctor', 'manage_options', 'find-a-doctor', 'fnd_import_page', 'dashicons-heart', 6
+        'Find a Doctor', 'Find a Doctor', 'manage_options', 'find-a-doctor', 'fnd_render_api_import_page', 'dashicons-heart', 6
     );
 
     add_submenu_page(
-        'find-a-doctor', 'Doctor Import', 'Doctor Import', 'manage_options', 'find-a-doctor', 'fnd_import_page'
+        'find-a-doctor', 'API Import', 'API Import', 'manage_options', 'find-a-doctor', 'fnd_render_api_import_page'
+    );
+
+    add_submenu_page(
+        'find-a-doctor', 'File Import (Legacy)', 'File Import (Legacy)', 'manage_options', 'file-import', 'fnd_import_page'
+    );
+
+    add_submenu_page(
+        'find-a-doctor', 'API Test', 'API Test', 'manage_options', 'api-test', 'fnd_render_api_test_page'
     );
 
     add_submenu_page(
@@ -53,7 +67,7 @@ add_action('admin_enqueue_scripts', 'fnd_enqueue_admin_assets');
 
 function fnd_enqueue_admin_assets($hook) {
     // Only load on your plugin pages
-    if (strpos($hook, 'find-a-doctor') === false && strpos($hook, 'doctor') === false && strpos($hook, 'manage-reference-data') === false) {
+    if (strpos($hook, 'find-a-doctor') === false && strpos($hook, 'doctor') === false && strpos($hook, 'manage-reference-data') === false && strpos($hook, 'file-import') === false && strpos($hook, 'api-test') === false) {
         return;
     }
 
