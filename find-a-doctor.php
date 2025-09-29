@@ -21,6 +21,7 @@ require_once plugin_dir_path(__FILE__) . 'includes/admin/doctor-edit.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin/manage-reference-data.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin/api-import.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin/api-test-page.php';
+require_once plugin_dir_path(__FILE__) . 'includes/url-rewrite.php';
 
 // Include debug helper in development
 if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -98,6 +99,15 @@ function fnd_handle_doctor_upload_ajax() {
 
 // Activation hook
 register_activation_hook(__FILE__, 'fnd_create_tables');
+register_activation_hook(__FILE__, 'fnd_activate_plugin');
+
+/**
+ * Plugin activation handler
+ */
+function fnd_activate_plugin() {
+    // Reset URL rewrite rules flag so they get flushed
+    FAD_URL_Rewrite::reset_flush_flag();
+}
 
 // related to wp graph
 define('FAD_GQL_VERSION', '1.0.3');

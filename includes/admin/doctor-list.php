@@ -3,6 +3,24 @@ function fnd_render_doctor_list_page() {
     global $wpdb;
     $doctors_table = $wpdb->prefix . 'doctors';
 
+    // Handle bulk slug generation
+    if (isset($_GET['generate_slugs']) && $_GET['generate_slugs'] == '1') {
+        $doctors_without_slugs = $wpdb->get_results(
+            "SELECT doctorID, first_name, last_name, degree FROM {$doctors_table} WHERE slug IS NULL OR slug = ''",
+            ARRAY_A
+        );
+        
+        $generated_count = 0;
+        foreach ($doctors_without_slugs as $doctor) {
+            $slug = fad_upsert_slug_for_doctor($doctor['doctorID'], true);
+            if ($slug) {
+                $generated_count++;
+            }
+        }
+        
+        echo '<div class="updated notice is-dismissible"><p><strong>' . $generated_count . ' slug(s) generated successfully.</strong></p></div>';
+    }
+
     if (isset($_GET['fnd_delete']) && is_numeric($_GET['fnd_delete'])) {
         $wpdb->delete($doctors_table, ['doctorID' => intval($_GET['fnd_delete'])]);
         echo '<div class="updated"><p>Doctor deleted successfully.</p></div>';
@@ -48,6 +66,16 @@ function fnd_render_doctor_list_page() {
     echo '<div class="wrap"><h1>All Doctors</h1>';
     echo '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">';
    echo '<h3 style="margin: 0;">Total Doctors: <span id="doctor-count">' . $total_doctors . '</span></h3>';
+    
+    // Check if any doctors are missing slugs
+    $missing_slugs = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}doctors WHERE slug IS NULL OR slug = ''");
+    if ($missing_slugs > 0) {
+        echo '<div class="notice notice-warning inline" style="margin: 10px 0; padding: 8px 12px;"><p>';
+        echo '<strong>Notice:</strong> ' . $missing_slugs . ' doctor(s) are missing URL slugs. ';
+        echo '<a href="admin.php?page=doctor-list&generate_slugs=1" class="button button-small">Generate Missing Slugs</a>';
+        echo '</p></div>';
+    }
+    
     echo '<form method="get"><input type="hidden" name="page" value="doctor-list">';
     echo '<input type="text" name="search" placeholder="Search by name or email..." value="' . esc_attr($search) . '">';
     echo ' <input type="submit" class="button" value="Search">';
@@ -86,8 +114,17 @@ function fnd_render_doctor_list_page() {
                 <td>{$doc->degree}</td>
                 <td>{$location_info}</td>
                 <td>
-                    <a href='admin.php?page=doctor-edit&id={$doc->doctorID}' class='button'>Edit</a>
-                    <a href='admin.php?page=doctor-list&fnd_delete={$doc->doctorID}' class='button' onclick=\"return confirm('Are you sure you want to delete this doctor?')\">Delete</a>
+                    <a href='admin.php?page=doctor-edit&id={$doc->doctorID}' class='button'>Edit</a>";
+            
+            // Only show preview link if doctor has a slug
+            if (!empty($doc->slug)) {
+                $preview_url = home_url("/physicians/{$doc->slug}/");
+                echo " <a href='{$preview_url}' class='button button-secondary preview-btn' target='_blank' rel='noopener' title='View public profile: {$preview_url}'>👁️ Preview</a>";
+            } else {
+                echo " <span class='button button-secondary button-disabled' title='No slug generated yet - click \"Generate Missing Slugs\" above' style='opacity: 0.5; cursor: not-allowed;'>👁️ Preview</span>";
+            }
+            
+            echo " <a href='admin.php?page=doctor-list&fnd_delete={$doc->doctorID}' class='button button-link-delete' onclick=\"return confirm('Are you sure you want to delete this doctor?')\">Delete</a>
                 </td>
             </tr>";
         }
@@ -130,3 +167,41 @@ function fnd_render_doctor_list_page() {
     echo '</div></div></div>';
 }
 ?>
+
+<style>
+.preview-btn {
+    background: #0073aa !important;
+    border-color: #0073aa !important;
+    color: white !important;
+    text-decoration: none !important;
+}
+
+.preview-btn:hover {
+    background: #005a87 !important;
+    border-color: #005a87 !important;
+    color: white !important;
+}
+
+.preview-btn:focus {
+    box-shadow: 0 0 0 1px #fff, 0 0 0 3px #0073aa !important;
+}
+
+.button-disabled {
+    pointer-events: none !important;
+}
+
+.current-page {
+    background: #0073aa !important;
+    border-color: #0073aa !important;
+    color: white !important;
+}
+
+/* Action buttons spacing */
+.wp-list-table .button {
+    margin-right: 3px;
+}
+
+.wp-list-table .button:last-child {
+    margin-right: 0;
+}
+</style>

@@ -4,15 +4,21 @@ if ( ! defined('ABSPATH') ) { exit; }
 
 function fad_degree_code($degree) {
     $code = strtolower($degree ?? '');
-    $code = preg_replace('/[^a-z0-9]+/i', '', $code); // remove dots, spaces, dashes, etc.
+    // Remove all special characters, keep only letters and numbers
+    $code = preg_replace('/[^a-z0-9]+/', '', $code);
     return $code;
 }
 
-// Build slug as firstname-lastname-degreeCode
+// Build slug as firstname-lastname-degreeCode (all lowercase, no special chars)
 function fad_slugify_doctor($first, $last, $degree) {
     $first  = sanitize_title($first);
     $last   = sanitize_title($last);
     $deg    = fad_degree_code($degree);
+    
+    // Ensure all parts are lowercase and clean
+    $first = strtolower(preg_replace('/[^a-z0-9-]/', '', $first));
+    $last = strtolower(preg_replace('/[^a-z0-9-]/', '', $last));
+    
     $parts  = array_filter([$first, $last, $deg]);
     return implode('-', $parts);
 }
