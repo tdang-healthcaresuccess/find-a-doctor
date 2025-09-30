@@ -26,13 +26,27 @@ require_once plugin_dir_path(__FILE__) . 'includes/url-rewrite.php';
 require_once plugin_dir_path(__FILE__) . 'includes/headless-api.php';
 
 // Check if we're in headless mode (Faust.js or similar)
-$is_headless = defined('HEADLESS_MODE_CLIENT_URL') || 
-               isset($_SERVER['HTTP_X_FAUST_SECRET']) ||
-               (function_exists('is_faust') && is_faust());
+$is_headless = FAD_URL_Rewrite::is_headless_mode();
+
+// Debug logging for headless detection
+if (defined('WP_DEBUG') && WP_DEBUG) {
+    error_log('FAD Headless Detection: ' . ($is_headless ? 'HEADLESS' : 'TRADITIONAL'));
+    if ($is_headless) {
+        error_log('FAD: Skipping URL rewrite initialization for headless mode');
+    }
+}
 
 if (!$is_headless) {
     // Only initialize URL rewriting for traditional WordPress
     FAD_URL_Rewrite::init();
+} else {
+    // In headless mode, ensure REST API endpoints are properly exposed
+    add_action('rest_api_init', function() {
+        // Add CORS headers for headless consumption
+        header('Access-Control-Allow-Origin: *');
+        header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type, Authorization');
+    });
 }
 
 // Include debug helper in development

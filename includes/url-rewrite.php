@@ -9,9 +9,30 @@ defined('ABSPATH') || exit;
 class FAD_URL_Rewrite {
     
     /**
+     * Check if we're in headless mode
+     */
+    public static function is_headless_mode() {
+        return defined('HEADLESS_MODE_CLIENT_URL') || 
+               isset($_SERVER['HTTP_X_FAUST_SECRET']) ||
+               (function_exists('is_faust') && is_faust()) ||
+               defined('FAUSTWP_SECRET_KEY') ||
+               (defined('WP_ENV') && WP_ENV === 'headless') ||
+               (isset($_SERVER['HTTP_X_HEADLESS']) && $_SERVER['HTTP_X_HEADLESS'] === '1');
+    }
+    
+    /**
      * Initialize URL rewriting
      */
     public static function init() {
+        // Double-check headless mode before initializing
+        if (self::is_headless_mode()) {
+            // Skip URL rewrite initialization in headless mode
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('FAD_URL_Rewrite::init() - Skipping initialization due to headless mode');
+            }
+            return;
+        }
+        
         add_action('init', [__CLASS__, 'add_rewrite_rules']);
         add_filter('query_vars', [__CLASS__, 'add_query_vars']);
         add_action('wp', [__CLASS__, 'handle_physician_page']);
