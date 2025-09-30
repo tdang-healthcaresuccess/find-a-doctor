@@ -69,6 +69,7 @@ function fnd_render_api_import_page() {
                 <p class="submit">
                     <button type="button" id="start-batch-import" class="button-primary button-large">Import Physicians</button>
                     <button type="button" id="preview-batch-import" class="button">Preview Import (No Changes)</button>
+                    <button type="button" id="manual-export-errors" class="button" style="margin-left: 20px; background-color: #664d03; color: white; border-color: #664d03;">Download Last Error Report</button>
                 </p>
             </form>
             

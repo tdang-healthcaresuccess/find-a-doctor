@@ -426,7 +426,8 @@ jQuery(document).ready(function($) {
         totalImported: 0,
         totalUpdated: 0,
         totalSkipped: 0,
-        searchParams: {}
+        searchParams: {},
+        allErrors: [] // Track all errors across batches for final summary
     };
     
     // Preview Batch Import
@@ -482,6 +483,7 @@ jQuery(document).ready(function($) {
                     batchImportState.totalImported = 0;
                     batchImportState.totalUpdated = 0;
                     batchImportState.totalSkipped = 0;
+                    batchImportState.allErrors = []; // Reset error tracking
                     batchImportState.isRunning = true;
                     batchImportState.isPaused = false;
                     
@@ -537,12 +539,48 @@ jQuery(document).ready(function($) {
                     batchImportState.totalUpdated = data.total_updated || 0;
                     batchImportState.totalSkipped = data.total_skipped || 0;
                     
+                    // Collect errors for final summary
+                    if (data.errors && data.errors.length > 0) {
+                        batchImportState.allErrors = batchImportState.allErrors.concat(
+                            data.errors.map(function(error) {
+                                return 'Batch ' + (batchImportState.currentBatch + 1) + ': ' + error;
+                            })
+                        );
+                    }
+                    
                     // Update progress
                     updateBatchProgress();
                     
-                    // Add message
-                    var messageClass = data.errors && data.errors.length > 0 ? 'batch-error' : 'batch-success';
-                    var message = '<div class="batch-message ' + messageClass + '">' + data.message + '</div>';
+                    // Add message with detailed error reporting
+                    var message = '';
+                    var messageClass = 'batch-success';
+                    
+                    if (data.errors && data.errors.length > 0) {
+                        messageClass = 'batch-warning';
+                        var errorDetails = '<ul style="margin: 5px 0; padding-left: 20px;">';
+                        data.errors.forEach(function(error) {
+                            errorDetails += '<li style="margin: 2px 0;">' + error + '</li>';
+                        });
+                        errorDetails += '</ul>';
+                        
+                        message = '<div class="batch-message ' + messageClass + '">' + 
+                                  '<strong>Batch ' + (batchImportState.currentBatch + 1) + ':</strong> ' + 
+                                  (data.batch_imported || 0) + ' imported, ' + 
+                                  (data.batch_updated || 0) + ' updated, ' + 
+                                  (data.batch_skipped || 0) + ' failed' +
+                                  '<details style="margin-top: 5px;"><summary style="cursor: pointer; font-weight: bold; color: #d63638;">View ' + data.errors.length + ' Failed Physician(s)</summary>' + 
+                                  errorDetails + 
+                                  '</details>' +
+                                  '</div>';
+                    } else {
+                        message = '<div class="batch-message ' + messageClass + '">' + 
+                                  '<strong>Batch ' + (batchImportState.currentBatch + 1) + ':</strong> ' + 
+                                  (data.batch_imported || 0) + ' imported, ' + 
+                                  (data.batch_updated || 0) + ' updated, ' + 
+                                  (data.batch_skipped || 0) + ' skipped' +
+                                  '</div>';
+                    }
+                    
                     $('#batch-messages').append(message);
                     
                     // Auto-scroll messages
@@ -632,14 +670,36 @@ jQuery(document).ready(function($) {
     function completeBatchImport() {
         batchImportState.isRunning = false;
         
+        // Create error summary if there are any errors
+        var errorSummary = '';
+        if (batchImportState.allErrors.length > 0) {
+            errorSummary = '<div style="margin-top: 15px; padding: 15px; background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px;">' +
+                          '<h4 style="color: #664d03; margin: 0 0 10px 0;">⚠️ Import Summary: ' + batchImportState.allErrors.length + ' physicians failed to import</h4>' +
+                          '<details style="margin-top: 10px;"><summary style="cursor: pointer; font-weight: bold; color: #664d03; padding: 5px; background-color: rgba(0,0,0,0.05); border-radius: 3px;">View All Failed Physicians and Reasons</summary>' +
+                          '<div style="max-height: 300px; overflow-y: auto; margin-top: 10px; padding: 10px; background-color: white; border-radius: 3px; border: 1px solid #ddd;">' +
+                          '<ul style="margin: 0; padding-left: 20px; font-family: monospace; font-size: 12px; line-height: 1.5;">';
+            
+            batchImportState.allErrors.forEach(function(error) {
+                errorSummary += '<li style="margin: 3px 0; word-break: break-word;">' + error + '</li>';
+            });
+            
+            errorSummary += '</ul>' +
+                           '<div style="margin-top: 15px; text-align: center;">' +
+                           '<button type="button" id="export-errors" class="button" style="background-color: #664d03; color: white; border-color: #664d03;">Export Error Report as Text</button>' +
+                           '</div>' +
+                           '</div></details></div>';
+        }
+        
         if (batchImportState.isDryRun) {
             $('#import-result').html('<div class="notice notice-info"><p><strong>Preview Complete!</strong> Would import ' + 
-                batchImportState.totalImported + ' physicians. <em>No data was actually imported.</em></p></div>');
+                batchImportState.totalImported + ' physicians. <em>No data was actually imported.</em></p></div>' + errorSummary);
             $('#start-batch-import').prop('disabled', false).text('Import Physicians');
             $('#preview-batch-import').prop('disabled', false).text('Preview Import (No Changes)');
         } else {
-            $('#import-result').html('<div class="notice notice-success"><p><strong>Import Complete!</strong> Imported ' + 
-                batchImportState.totalImported + ' physicians.</p></div>');
+            $('#import-result').html('<div class="notice notice-success"><p><strong>Import Complete!</strong> ' +
+                'Imported: ' + batchImportState.totalImported + ', ' +
+                'Updated: ' + batchImportState.totalUpdated + ', ' +
+                'Failed: ' + batchImportState.totalSkipped + ' physicians.</p></div>' + errorSummary);
             $('#start-batch-import').prop('disabled', false).text('Import Physicians');
             $('#preview-batch-import').prop('disabled', false).text('Preview Import (No Changes)');
             
@@ -648,6 +708,13 @@ jQuery(document).ready(function($) {
         }
         
         $('#batch-progress').hide();
+        
+        // Add click handler for export button (if errors exist)
+        if (batchImportState.allErrors.length > 0) {
+            $(document).off('click', '#export-errors').on('click', '#export-errors', function() {
+                exportErrorReport();
+            });
+        }
     }
     
     // Cancel batch import
@@ -680,6 +747,15 @@ jQuery(document).ready(function($) {
         }
     });
     
+    // Manual error export button
+    $('#manual-export-errors').on('click', function() {
+        if (batchImportState.allErrors.length === 0) {
+            alert('No error data available. Run an import first to generate error reports.');
+            return;
+        }
+        exportErrorReport();
+    });
+    
     // Function to refresh physician count display
     function refreshPhysicianCount() {
         $.ajax({
@@ -698,5 +774,39 @@ jQuery(document).ready(function($) {
                 console.log('Failed to refresh physician count');
             }
         });
+    }
+    
+    // Function to export error report as downloadable text file
+    function exportErrorReport() {
+        if (batchImportState.allErrors.length === 0) {
+            alert('No errors to export.');
+            return;
+        }
+        
+        var timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
+        var filename = 'physician-import-errors-' + timestamp + '.txt';
+        
+        var content = 'Physician Import Error Report\n';
+        content += 'Generated: ' + new Date().toLocaleString() + '\n';
+        content += 'Total Errors: ' + batchImportState.allErrors.length + '\n';
+        content += '==================================================\n\n';
+        
+        batchImportState.allErrors.forEach(function(error, index) {
+            content += (index + 1) + '. ' + error + '\n\n';
+        });
+        
+        // Create downloadable file
+        var blob = new Blob([content], { type: 'text/plain' });
+        var url = window.URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        // Show success message
+        alert('Error report exported as: ' + filename);
     }
 });

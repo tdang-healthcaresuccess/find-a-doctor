@@ -48,6 +48,66 @@
 }
 
 /* API Import Page Styles */
+
+/* Enhanced Batch Message Styles */
+.batch-message {
+    margin: 5px 0;
+    padding: 10px;
+    border-left: 4px solid;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.batch-message.batch-success {
+    background-color: #d1e7dd;
+    border-left-color: #0f5132;
+    color: #0f5132;
+}
+
+.batch-message.batch-warning {
+    background-color: #fff3cd;
+    border-left-color: #664d03;
+    color: #664d03;
+}
+
+.batch-message.batch-error {
+    background-color: #f8d7da;
+    border-left-color: #842029;
+    color: #842029;
+}
+
+.batch-message details {
+    margin-top: 8px;
+}
+
+.batch-message details summary {
+    cursor: pointer;
+    font-weight: bold;
+    padding: 5px;
+    border-radius: 3px;
+    background-color: rgba(0,0,0,0.05);
+}
+
+.batch-message details summary:hover {
+    background-color: rgba(0,0,0,0.1);
+}
+
+.batch-message details ul {
+    margin: 10px 0 5px 0;
+    padding-left: 20px;
+    max-height: 200px;
+    overflow-y: auto;
+    background-color: rgba(255,255,255,0.5);
+    border-radius: 3px;
+    padding: 10px 20px;
+}
+
+.batch-message details li {
+    margin: 3px 0;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.4;
+}
 .card {
     background: #fff;
     border: 1px solid #ccd0d4;
