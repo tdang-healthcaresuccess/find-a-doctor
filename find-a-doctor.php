@@ -90,8 +90,8 @@ function fnd_enqueue_admin_assets($hook) {
 
     $plugin_url = plugin_dir_url(__FILE__);
 
-    wp_enqueue_style('fnd-custom-style', $plugin_url . 'assets/css/custom.css', [], '1.0.1');
-    wp_enqueue_script('fnd-custom-script', $plugin_url . 'assets/js/custom.js', ['jquery'], '1.0.1', true);
+    wp_enqueue_style('fnd-custom-style', $plugin_url . 'assets/css/custom.css', [], '1.0.4');
+    wp_enqueue_script('fnd-custom-script', $plugin_url . 'assets/js/custom.js', ['jquery'], '1.0.4', true);
     
     // Localize script for AJAX
     wp_localize_script('fnd-custom-script', 'fad_ajax_object', [

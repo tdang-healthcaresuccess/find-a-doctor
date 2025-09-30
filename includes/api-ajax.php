@@ -10,6 +10,12 @@ require_once plugin_dir_path(__FILE__) . 'api-import.php';
 // AJAX handler for testing API connection
 add_action('wp_ajax_fad_test_api_connection', 'fad_handle_test_api_connection');
 
+// AJAX handler for validating database schema
+add_action('wp_ajax_fad_validate_schema', 'fad_handle_validate_schema');
+
+// AJAX handler for fixing database schema
+add_action('wp_ajax_fad_fix_schema', 'fad_handle_fix_schema');
+
 function fad_handle_test_api_connection() {
     // Clean any output that might have been generated
     if (ob_get_level()) {
@@ -290,5 +296,378 @@ function fad_handle_cleanup_duplicates() {
         wp_send_json_success($results);
     } catch (Exception $e) {
         wp_send_json_error('Cleanup failed: ' . $e->getMessage());
+    }
+}
+
+// AJAX handler for deleting all physicians
+add_action('wp_ajax_fad_delete_all_physicians', 'fad_handle_delete_all_physicians');
+
+function fad_handle_delete_all_physicians() {
+    // Clean any output that might have been generated
+    if (ob_get_level()) {
+        ob_clean();
+    }
+    
+    // Verify nonce
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'fad_api_nonce')) {
+        wp_send_json_error('Invalid nonce');
+        return;
+    }
+    
+    // Check permissions
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+        return;
+    }
+    
+    try {
+        global $wpdb;
+        
+        // Get the table names
+        $doctors_table = $wpdb->prefix . 'doctors';
+        $doctor_specialties_table = $wpdb->prefix . 'doctor_specialties';
+        $doctor_language_table = $wpdb->prefix . 'doctor_language';
+        $doctor_zocdoc_table = $wpdb->prefix . 'doctor_zocdoc';
+        
+        // Get current count before deletion
+        $count_before = $wpdb->get_var("SELECT COUNT(*) FROM {$doctors_table}");
+        
+        if ($count_before == 0) {
+            wp_send_json_success([
+                'message' => 'No physicians found in database. Nothing to delete.',
+                'deleted_count' => 0
+            ]);
+            return;
+        }
+        
+        // Start transaction to ensure data integrity
+        $wpdb->query('START TRANSACTION');
+        
+        try {
+            // Delete from junction tables first (foreign key constraints)
+            $wpdb->query("DELETE FROM {$doctor_specialties_table}");
+            $wpdb->query("DELETE FROM {$doctor_language_table}");
+            $wpdb->query("DELETE FROM {$doctor_zocdoc_table}");
+            
+            // Delete from main doctors table
+            $result = $wpdb->query("DELETE FROM {$doctors_table}");
+            
+            if ($result === false) {
+                throw new Exception('Failed to delete physicians from database');
+            }
+            
+            // Commit the transaction
+            $wpdb->query('COMMIT');
+            
+            wp_send_json_success([
+                'message' => "Successfully deleted {$count_before} physicians and all related data from the database.",
+                'deleted_count' => $count_before
+            ]);
+            
+        } catch (Exception $e) {
+            // Rollback on error
+            $wpdb->query('ROLLBACK');
+            throw $e;
+        }
+        
+    } catch (Exception $e) {
+        wp_send_json_error('Failed to delete physicians: ' . $e->getMessage());
+    }
+}
+
+// AJAX handler for getting physician count
+add_action('wp_ajax_fad_get_physician_count', 'fad_handle_get_physician_count');
+
+function fad_handle_get_physician_count() {
+    // Clean any output that might have been generated
+    if (ob_get_level()) {
+        ob_clean();
+    }
+    
+    // Verify nonce
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'fad_api_nonce')) {
+        wp_send_json_error('Invalid nonce');
+        return;
+    }
+    
+    // Check permissions
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+        return;
+    }
+    
+    try {
+        global $wpdb;
+        $doctors_table = $wpdb->prefix . 'doctors';
+        $count = $wpdb->get_var("SELECT COUNT(*) FROM {$doctors_table}");
+        
+        wp_send_json_success([
+            'count' => (int)$count
+        ]);
+        
+    } catch (Exception $e) {
+        wp_send_json_error('Failed to get physician count: ' . $e->getMessage());
+    }
+}
+
+// AJAX handler for batch import
+add_action('wp_ajax_fad_import_batch', 'fad_handle_import_batch');
+
+function fad_handle_import_batch() {
+    // Clean any output that might have been generated
+    if (ob_get_level()) {
+        ob_clean();
+    }
+    
+    // Verify nonce
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'fad_api_nonce')) {
+        wp_send_json_error('Invalid nonce');
+        return;
+    }
+    
+    // Check permissions
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+        return;
+    }
+    
+    try {
+        // Get parameters
+        $batch_size = isset($_POST['batch_size']) ? (int)$_POST['batch_size'] : 50;
+        $current_batch = isset($_POST['current_batch']) ? (int)$_POST['current_batch'] : 0;
+        $dry_run = isset($_POST['dry_run']) && $_POST['dry_run'] === '1';
+        
+        // Get session data to check for limits
+        $session_data = get_transient('fad_import_session_' . get_current_user_id());
+        $user_limit = $session_data ? $session_data['user_limit'] : null;
+        $import_all_pages = $session_data ? $session_data['import_all_pages'] : false;
+        
+        // Get search parameters from form fields or session
+        $search_params = [];
+        
+        if (!empty($_POST['specialty'])) {
+            $search_params['specialty'] = sanitize_text_field($_POST['specialty']);
+        } elseif ($session_data && !empty($session_data['search_params']['specialty'])) {
+            $search_params['specialty'] = $session_data['search_params']['specialty'];
+        }
+        
+        if (!empty($_POST['location'])) {
+            $search_params['location'] = sanitize_text_field($_POST['location']);
+        } elseif ($session_data && !empty($session_data['search_params']['location'])) {
+            $search_params['location'] = $session_data['search_params']['location'];
+        }
+        
+        // Apply limit if not importing all pages
+        if (!$import_all_pages && $user_limit) {
+            $physicians_imported_so_far = $current_batch * $batch_size;
+            $remaining_limit = $user_limit - $physicians_imported_so_far;
+            
+            if ($remaining_limit <= 0) {
+                // We've reached the limit
+                wp_send_json_success([
+                    'success' => true,
+                    'imported' => 0,
+                    'updated' => 0,
+                    'skipped' => 0,
+                    'message' => 'Import limit reached',
+                    'is_complete' => true
+                ]);
+                return;
+            }
+            
+            // Adjust batch size if needed to not exceed limit
+            if ($remaining_limit < $batch_size) {
+                $batch_size = $remaining_limit;
+            }
+        }
+        
+        // Process the batch
+        $result = fad_import_doctors_batch($batch_size, $current_batch, $search_params, $dry_run);
+        
+        if ($result['success']) {
+            wp_send_json_success($result);
+        } else {
+            wp_send_json_error($result['errors']);
+        }
+    } catch (Exception $e) {
+        wp_send_json_error('Batch import failed: ' . $e->getMessage());
+    }
+}
+
+// AJAX handler for starting batch import session
+add_action('wp_ajax_fad_start_batch_import', 'fad_handle_start_batch_import');
+
+function fad_handle_start_batch_import() {
+    // Clean any output that might have been generated
+    if (ob_get_level()) {
+        ob_clean();
+    }
+    
+    // Verify nonce
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'fad_api_nonce')) {
+        wp_send_json_error('Invalid nonce');
+        return;
+    }
+    
+    // Check permissions
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+        return;
+    }
+    
+    try {
+        // Clear any existing session
+        $session_key = 'fad_import_session_' . get_current_user_id();
+        delete_transient($session_key);
+        
+        // Also clear dry run session
+        $dry_session_key = 'fad_dry_run_session_' . get_current_user_id();
+        delete_transient($dry_session_key);
+        
+        // Get total count to estimate batches
+        $search_params = [];
+        
+        if (!empty($_POST['specialty'])) {
+            $search_params['specialty'] = sanitize_text_field($_POST['specialty']);
+        }
+        
+        if (!empty($_POST['location'])) {
+            $search_params['location'] = sanitize_text_field($_POST['location']);
+        }
+        
+        // Check if user wants to import all pages or respect the limit
+        $import_all_pages = !empty($_POST['import_all_pages']);
+        $user_limit = !empty($_POST['limit']) ? (int)$_POST['limit'] : null;
+        
+        $total_response = FAD_API_Client::search_physicians($search_params, 0);
+        
+        if (is_wp_error($total_response)) {
+            wp_send_json_error('Failed to get total physician count: ' . $total_response->get_error_message());
+            return;
+        }
+        
+        $api_total_physicians = isset($total_response['pager']['total_items']) 
+            ? (int)$total_response['pager']['total_items'] 
+            : 0;
+            
+        // Determine actual total based on user preference
+        if ($import_all_pages) {
+            $total_physicians = $api_total_physicians;
+            $limit_message = "all {$api_total_physicians} physicians (import all pages enabled)";
+        } elseif ($user_limit && $user_limit < $api_total_physicians) {
+            $total_physicians = $user_limit;
+            $limit_message = "{$user_limit} physicians (user limit applied)";
+        } else {
+            $total_physicians = $api_total_physicians;
+            $limit_message = "all {$api_total_physicians} physicians (limit {$user_limit} is greater than available)";
+        }
+        
+        // Store the effective limit in session for batch processing
+        $session_data = [
+            'user_limit' => $user_limit,
+            'import_all_pages' => $import_all_pages,
+            'total_physicians' => $total_physicians,
+            'search_params' => $search_params
+        ];
+        set_transient('fad_import_session_' . get_current_user_id(), $session_data, 3600); // 1 hour
+            
+        $batch_size = isset($_POST['batch_size']) ? (int)$_POST['batch_size'] : 50;
+        $estimated_batches = ceil($total_physicians / $batch_size);
+        
+        wp_send_json_success([
+            'total_physicians' => $total_physicians,
+            'batch_size' => $batch_size,
+            'estimated_batches' => $estimated_batches,
+            'message' => "Ready to import {$limit_message} in {$estimated_batches} batches of {$batch_size}"
+        ]);
+        
+    } catch (Exception $e) {
+        wp_send_json_error('Failed to start batch import: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Handle database schema validation
+ */
+function fad_handle_validate_schema() {
+    // Clean any output that might have been generated
+    if (ob_get_level()) {
+        ob_clean();
+    }
+    
+    // Verify nonce
+    if (!isset($_POST['nonce'])) {
+        wp_send_json_error('Missing nonce');
+    }
+    
+    if (!wp_verify_nonce($_POST['nonce'], 'fnd_ajax_nonce')) {
+        wp_send_json_error('Invalid nonce');
+    }
+    
+    // Check permissions
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+    }
+    
+    try {
+        $validation_results = fad_validate_database_schema();
+        
+        if ($validation_results['valid']) {
+            wp_send_json_success([
+                'message' => 'Database schema is valid and ready for import!',
+                'details' => $validation_results
+            ]);
+        } else {
+            wp_send_json_error([
+                'message' => 'Database schema validation failed',
+                'details' => $validation_results
+            ]);
+        }
+        
+    } catch (Exception $e) {
+        wp_send_json_error('Schema validation failed: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Handle database schema auto-fix
+ */
+function fad_handle_fix_schema() {
+    // Clean any output that might have been generated
+    if (ob_get_level()) {
+        ob_clean();
+    }
+    
+    // Verify nonce
+    if (!isset($_POST['nonce'])) {
+        wp_send_json_error('Missing nonce');
+    }
+    
+    if (!wp_verify_nonce($_POST['nonce'], 'fnd_ajax_nonce')) {
+        wp_send_json_error('Invalid nonce');
+    }
+    
+    // Check permissions
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+    }
+    
+    try {
+        $fix_results = fad_fix_database_schema();
+        
+        if ($fix_results['success']) {
+            wp_send_json_success([
+                'message' => $fix_results['message'],
+                'details' => $fix_results
+            ]);
+        } else {
+            wp_send_json_error([
+                'message' => 'Failed to fix database schema',
+                'details' => $fix_results
+            ]);
+        }
+        
+    } catch (Exception $e) {
+        wp_send_json_error('Schema fix failed: ' . $e->getMessage());
     }
 }

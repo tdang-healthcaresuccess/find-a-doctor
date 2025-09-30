@@ -8,6 +8,287 @@ defined('ABSPATH') || exit;
 require_once plugin_dir_path(__FILE__) . 'api-client.php';
 
 /**
+ * Import doctors from API in batches to prevent timeouts
+ *
+ * @param int $batch_size Number of physicians to process per batch
+ * @param int $current_batch Current batch number (0-based)
+ * @param array $search_params Optional search parameters to filter physicians
+ * @param bool $dry_run If true, only preview data without importing
+ * @return array Batch import results
+ */
+function fad_import_doctors_batch($batch_size = 50, $current_batch = 0, $search_params = [], $dry_run = false) {
+    global $wpdb;
+    
+    // Get session data to check for user limits
+    $session_key = 'fad_import_session_' . get_current_user_id();
+    $session_data = get_transient($session_key);
+    $user_limit = $session_data ? $session_data['user_limit'] : null;
+    $import_all_pages = $session_data ? $session_data['import_all_pages'] : false;
+    $session_total_physicians = $session_data ? $session_data['total_physicians'] : 0;
+    
+    $results = [
+        'success' => false,
+        'batch_imported' => 0,
+        'batch_updated' => 0,
+        'batch_skipped' => 0,
+        'total_imported' => 0,
+        'total_updated' => 0,
+        'total_skipped' => 0,
+        'current_batch' => $current_batch,
+        'has_more_batches' => false,
+        'total_physicians' => $session_total_physicians,
+        'processed_so_far' => 0,
+        'errors' => [],
+        'message' => '',
+        'dry_run' => $dry_run,
+        'preview_data' => [],
+        'is_complete' => false
+    ];
+    
+    try {
+        // Check if we've already reached the user's limit
+        if (!$import_all_pages && $user_limit) {
+            $physicians_processed_so_far = $current_batch * $batch_size;
+            if ($physicians_processed_so_far >= $user_limit) {
+                $results['success'] = true;
+                $results['is_complete'] = true;
+                $results['message'] = "Import limit of {$user_limit} physicians reached";
+                $results['processed_so_far'] = $user_limit;
+                return $results;
+            }
+            
+            // Adjust batch size if we're close to the limit
+            $remaining_limit = $user_limit - $physicians_processed_so_far;
+            if ($remaining_limit < $batch_size) {
+                $batch_size = $remaining_limit;
+            }
+        }
+        
+        // First, get total count if this is the first batch
+        if ($current_batch === 0) {
+            $total_response = FAD_API_Client::search_physicians($search_params, 0);
+            if (is_wp_error($total_response)) {
+                $results['errors'][] = $total_response->get_error_message();
+                return $results;
+            }
+            
+            if (isset($total_response['pager']['total_items'])) {
+                $api_total = (int)$total_response['pager']['total_items'];
+                
+                // Update results with effective total (respecting user limit)
+                if (!$import_all_pages && $user_limit && $user_limit < $api_total) {
+                    $results['total_physicians'] = $user_limit;
+                } else {
+                    $results['total_physicians'] = $api_total;
+                }
+            }
+        }
+        
+        // Calculate which API page to fetch based on batch
+        $api_page = floor(($current_batch * $batch_size) / 12); // API returns 12 items per page
+        $offset_in_page = ($current_batch * $batch_size) % 12;
+        
+        // Get the specific page from API
+        $api_response = FAD_API_Client::search_physicians($search_params, $api_page);
+        
+        if (is_wp_error($api_response)) {
+            $results['errors'][] = $api_response->get_error_message();
+            return $results;
+        }
+        
+        if (!isset($api_response['rows']) || !is_array($api_response['rows'])) {
+            $results['errors'][] = 'No physicians data returned from API';
+            return $results;
+        }
+        
+        $all_physicians = $api_response['rows'];
+        
+        // If we need more physicians for this batch, get additional pages
+        $needed_physicians = $batch_size;
+        $collected_physicians = [];
+        
+        // Collect physicians for this batch
+        while (count($collected_physicians) < $needed_physicians && !empty($all_physicians)) {
+            $physicians_to_take = min($needed_physicians - count($collected_physicians), count($all_physicians));
+            $batch_physicians = array_slice($all_physicians, $offset_in_page, $physicians_to_take);
+            $collected_physicians = array_merge($collected_physicians, $batch_physicians);
+            
+            // Reset offset for subsequent pages
+            $offset_in_page = 0;
+            
+            // Get next page if needed
+            if (count($collected_physicians) < $needed_physicians) {
+                $api_page++;
+                $next_response = FAD_API_Client::search_physicians($search_params, $api_page);
+                
+                if (is_wp_error($next_response) || !isset($next_response['rows'])) {
+                    break;
+                }
+                
+                $all_physicians = $next_response['rows'];
+            } else {
+                break;
+            }
+        }
+        
+        // Check if there will be more batches
+        $results['processed_so_far'] = ($current_batch * $batch_size) + count($collected_physicians);
+        
+        // Determine if there are more batches based on limit settings
+        if (!$import_all_pages && $user_limit) {
+            $results['has_more_batches'] = $results['processed_so_far'] < $user_limit && $results['processed_so_far'] < $results['total_physicians'];
+            
+            // Check if we've reached the limit
+            if ($results['processed_so_far'] >= $user_limit) {
+                $results['is_complete'] = true;
+            }
+        } else {
+            $results['has_more_batches'] = $results['processed_so_far'] < $results['total_physicians'];
+        }
+        
+        if (empty($collected_physicians)) {
+            $results['success'] = true;
+            $results['message'] = 'No more physicians to process';
+            return $results;
+        }
+        
+        // Process this batch
+        $batch_results = fad_process_physician_batch($collected_physicians, $dry_run);
+        
+        $results['batch_imported'] = $batch_results['imported'];
+        $results['batch_updated'] = $batch_results['updated'];
+        $results['batch_skipped'] = $batch_results['skipped'];
+        $results['errors'] = array_merge($results['errors'], $batch_results['errors']);
+        $results['preview_data'] = $batch_results['preview_data'];
+        
+        // Get cumulative totals (for both dry run and actual import)
+        if (!$dry_run) {
+            $session_key = 'fad_import_session_' . get_current_user_id();
+            $session_data = get_transient($session_key);
+            
+            if ($session_data) {
+                $results['total_imported'] = $session_data['total_imported'] + $results['batch_imported'];
+                $results['total_updated'] = $session_data['total_updated'] + $results['batch_updated'];
+                $results['total_skipped'] = $session_data['total_skipped'] + $results['batch_skipped'];
+            } else {
+                $results['total_imported'] = $results['batch_imported'];
+                $results['total_updated'] = $results['batch_updated'];
+                $results['total_skipped'] = $results['batch_skipped'];
+            }
+            
+            // Update session data
+            set_transient($session_key, [
+                'total_imported' => $results['total_imported'],
+                'total_updated' => $results['total_updated'],
+                'total_skipped' => $results['total_skipped'],
+                'current_batch' => $current_batch + 1
+            ], HOUR_IN_SECONDS);
+        } else {
+            // For dry runs, track cumulative totals in a separate session key
+            $dry_session_key = 'fad_dry_run_session_' . get_current_user_id();
+            $dry_session_data = get_transient($dry_session_key);
+            
+            if ($dry_session_data) {
+                $results['total_imported'] = $dry_session_data['total_imported'] + $results['batch_imported'];
+                $results['total_updated'] = $dry_session_data['total_updated'] + $results['batch_updated'];
+                $results['total_skipped'] = $dry_session_data['total_skipped'] + $results['batch_skipped'];
+            } else {
+                $results['total_imported'] = $results['batch_imported'];
+                $results['total_updated'] = $results['batch_updated'];
+                $results['total_skipped'] = $results['batch_skipped'];
+            }
+            
+            // Update dry run session data
+            set_transient($dry_session_key, [
+                'total_imported' => $results['total_imported'],
+                'total_updated' => $results['total_updated'],
+                'total_skipped' => $results['total_skipped'],
+                'current_batch' => $current_batch + 1
+            ], HOUR_IN_SECONDS);
+        }
+        
+        $results['success'] = true;
+        
+        if ($dry_run) {
+            $results['message'] = sprintf(
+                'Batch %d preview: Would process %d physicians',
+                $current_batch + 1,
+                count($collected_physicians)
+            );
+        } else {
+            $results['message'] = sprintf(
+                'Batch %d complete: Imported %d, Updated %d, Skipped %d physicians',
+                $current_batch + 1,
+                $results['batch_imported'],
+                $results['batch_updated'], 
+                $results['batch_skipped']
+            );
+        }
+        
+        return $results;
+        
+    } catch (Exception $e) {
+        $results['errors'][] = $e->getMessage();
+        return $results;
+    }
+}
+
+/**
+ * Process a batch of physicians
+ *
+ * @param array $physicians Array of physician data
+ * @param bool $dry_run If true, only preview data without importing
+ * @return array Processing results
+ */
+function fad_process_physician_batch($physicians, $dry_run = false) {
+    $results = [
+        'imported' => 0,
+        'updated' => 0,
+        'skipped' => 0,
+        'errors' => [],
+        'preview_data' => []
+    ];
+    
+    foreach ($physicians as $physician_data) {
+        try {
+            if ($dry_run) {
+                // For dry run, just collect preview data
+                $results['preview_data'][] = [
+                    'full_name' => $physician_data['full_name'] ?? 'Unknown',
+                    'specialty' => !empty($physician_data['specialties']) 
+                        ? $physician_data['specialties'][0]['name'] 
+                        : 'Unknown',
+                    'location' => !empty($physician_data['location']) 
+                        ? $physician_data['location'][0]['locality'] . ', ' . $physician_data['location'][0]['administrative_area']
+                        : 'Unknown'
+                ];
+                $results['imported']++; // Count as "would import"
+            } else {
+                // Actually process the physician
+                $result = fad_import_single_physician($physician_data);
+                
+                if ($result['success']) {
+                    if ($result['action'] === 'inserted') {
+                        $results['imported']++;
+                    } else {
+                        $results['updated']++;
+                    }
+                } else {
+                    $results['skipped']++;
+                    $results['errors'][] = $result['error'];
+                    error_log("FAD Import Error - Physician skipped: " . $result['error'] . " | Data: " . json_encode($physician_data));
+                }
+            }
+        } catch (Exception $e) {
+            $results['errors'][] = 'Error processing physician: ' . $e->getMessage();
+            $results['skipped']++;
+        }
+    }
+    
+    return $results;
+}
+
+/**
  * Import doctors from API
  *
  * @param array $search_params Optional search parameters to filter physicians
@@ -523,49 +804,28 @@ function fad_map_api_to_db_fields($api_data) {
         }
     }
     
-    // Medical school from education_training
-    $mapped['medical_school'] = '';
-    if (isset($api_data['education_training']) && is_array($api_data['education_training'])) {
-        foreach ($api_data['education_training'] as $education) {
-            if (strpos(strtolower($education), 'medical school') !== false) {
-                $mapped['medical_school'] = trim(str_replace('||Medical School, ', '', $education));
-                break;
-            }
-        }
-    }
+    // Parse education and training data using the new parsing function
+    $education_data = fad_parse_education_training($api_data['education_training'] ?? []);
+    $mapped['medical_school'] = $education_data['medical_school'];
+    $mapped['internship'] = $education_data['internship'];
+    $mapped['residency'] = $education_data['residency'];
+    $mapped['fellowship'] = $education_data['fellowship'];
     
-    // Education fields from education_training array
-    $internship = [];
-    $residency = [];
-    $fellowship = [];
-    
-    if (isset($api_data['education_training']) && is_array($api_data['education_training'])) {
-        foreach ($api_data['education_training'] as $education) {
-            $education = trim($education);
-            if (strpos(strtolower($education), 'internship') !== false) {
-                $internship[] = str_replace('||Internship, ', '', $education);
-            } elseif (strpos(strtolower($education), 'residency') !== false) {
-                $residency[] = str_replace('||Residency, ', '', $education);
-            } elseif (strpos(strtolower($education), 'fellowship') !== false) {
-                $fellowship[] = str_replace('||Fellowship, ', '', $education);
-            }
-        }
-    }
-    
-    $mapped['internship'] = implode(', ', $internship);
-    $mapped['residency'] = implode(', ', $residency);
-    $mapped['fellowship'] = implode(', ', $fellowship);
-    
-    // Board certifications
+    // Board certifications - use existing certification field
     $certifications = [];
     if (isset($api_data['board_certification']) && is_array($api_data['board_certification'])) {
         foreach ($api_data['board_certification'] as $cert) {
             // Extract certification name (after the last |)
             $parts = explode('|', $cert);
             if (count($parts) >= 3) {
-                $certifications[] = end($parts);
+                $certifications[] = trim(end($parts));
             }
         }
+    }
+    
+    // Add any parsed certification from education_training
+    if (!empty($education_data['certification'])) {
+        $certifications[] = $education_data['certification'];
     }
     $mapped['certification'] = implode(', ', $certifications);
     
@@ -595,6 +855,18 @@ function fad_map_api_to_db_fields($api_data) {
     );
     $mapped['Insurances'] = implode(', ', array_unique($all_networks));
     
+    // New required fields
+    $mapped['full_name'] = trim(($mapped['first_name'] ?? '') . ' ' . ($mapped['last_name'] ?? ''));
+    $mapped['npi'] = $api_data['npi'] ?? '';
+    $mapped['accept_medi_cal'] = isset($api_data['medi_cal_networks']) && !empty($api_data['medi_cal_networks']) ? 1 : 0;
+    $mapped['accepts_new_patients'] = isset($api_data['accepts_new_patients']) ? ($api_data['accepts_new_patients'] ? 1 : 0) : null;
+    
+    // Other fields that might be missing
+    $mapped['primary_care'] = isset($api_data['primary_care']) ? ($api_data['primary_care'] ? 1 : 0) : 0;
+    $mapped['prov_status'] = $api_data['prov_status'] ?? '';
+    $mapped['is_ab_directory'] = 0; // Default value
+    $mapped['is_bt_directory'] = 0; // Default value
+    
     return $mapped;
 }
 
@@ -608,24 +880,28 @@ function fad_sync_reference_data() {
         'success' => false,
         'languages_synced' => 0,
         'hospitals_synced' => 0,
+        'insurances_synced' => 0,
         'errors' => []
     ];
     
     try {
-        // Sync languages
-        $languages_response = FAD_API_Client::get_languages();
-        if (!is_wp_error($languages_response)) {
-            $results['languages_synced'] = fad_sync_languages($languages_response);
-        } else {
-            $results['errors'][] = 'Languages sync failed: ' . $languages_response->get_error_message();
-        }
+        // Get sample data from API to extract reference data
+        $sample_response = FAD_API_Client::search_physicians([], 0);
         
-        // Sync hospitals
-        $hospitals_response = FAD_API_Client::get_hospitals();
-        if (!is_wp_error($hospitals_response)) {
-            $results['hospitals_synced'] = fad_sync_hospitals($hospitals_response);
+        if (!is_wp_error($sample_response)) {
+            // Sync languages
+            $results['languages_synced'] = fad_sync_languages($sample_response);
+            
+            // Sync hospitals  
+            $results['hospitals_synced'] = fad_sync_hospitals($sample_response);
+            
+            // Sync insurances
+            $results['insurances_synced'] = fad_sync_insurances($sample_response);
+            
+            // Sync insurances
+            $results['insurances_synced'] = fad_sync_insurances($sample_response);
         } else {
-            $results['errors'][] = 'Hospitals sync failed: ' . $hospitals_response->get_error_message();
+            $results['errors'][] = 'API connection failed: ' . $sample_response->get_error_message();
         }
         
         $results['success'] = empty($results['errors']);
@@ -724,6 +1000,295 @@ function fad_sync_hospitals($api_response) {
     }
     
     return 0;
+}
+
+/**
+ * Sync insurances from API response
+ *
+ * @param array $api_response
+ * @return int Number of insurances synced
+ */
+function fad_sync_insurances($api_response) {
+    global $wpdb;
+    
+    $synced = 0;
+    $all_insurances = [];
+    
+    if (isset($api_response['rows']) && is_array($api_response['rows'])) {
+        foreach ($api_response['rows'] as $physician) {
+            // Collect from all insurance types
+            $insurance_types = [
+                'hmo_networks' => 'hmo',
+                'ppo_networks' => 'ppo', 
+                'acn_networks' => 'acn',
+                'aco_networks' => 'aco',
+                'insurancePlanLinks' => 'plan_link'
+            ];
+            
+            foreach ($insurance_types as $api_field => $type) {
+                if (isset($physician[$api_field]) && is_array($physician[$api_field])) {
+                    foreach ($physician[$api_field] as $insurance_name) {
+                        $insurance_name = trim($insurance_name);
+                        if (!empty($insurance_name)) {
+                            $key = $insurance_name . '|' . $type;
+                            $all_insurances[$key] = ['name' => $insurance_name, 'type' => $type];
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Sync unique insurances
+        foreach ($all_insurances as $insurance_data) {
+            $existing = $wpdb->get_var($wpdb->prepare(
+                "SELECT insuranceID FROM {$wpdb->prefix}insurances WHERE LOWER(TRIM(insurance_name)) = %s AND insurance_type = %s",
+                strtolower(trim($insurance_data['name'])),
+                $insurance_data['type']
+            ));
+            
+            if (!$existing) {
+                $wpdb->insert("{$wpdb->prefix}insurances", [
+                    'insurance_name' => $insurance_data['name'],
+                    'insurance_type' => $insurance_data['type']
+                ]);
+                $synced++;
+            }
+        }
+    }
+    
+    return $synced;
+}
+
+/**
+ * Validate database schema for API import
+ *
+ * @return array Validation results
+ */
+function fad_validate_database_schema() {
+    global $wpdb;
+    
+    $results = [
+        'valid' => true,
+        'tables' => [],
+        'missing_columns' => [],
+        'missing_tables' => [],
+        'errors' => []
+    ];
+    
+    // Required tables and their columns
+    $required_schema = [
+        'doctors' => [
+            'doctorID', 'atlas_primary_key', 'idme', 'first_name', 'last_name', 
+            'full_name', 'email', 'phone_number', 'fax_number', 'npi',
+            'primary_care', 'degree', 'gender', 'medical_school', 
+            'internship', 'certification', 'residency', 'fellowship',
+            'biography', 'profile_img_url', 'practice_name', 'prov_status',
+            'address', 'city', 'state', 'zip', 'county',
+            'is_ab_directory', 'is_bt_directory', 'accept_medi_cal',
+            'accepts_new_patients', 'Insurances', 'hospitalNames',
+            'aco_active_networks', 'hmo_active_networks', 'ppo_active_network', 
+            'slug', 'created_at', 'latitude', 'longitude'
+        ],
+        'specialties' => ['specialtyID', 'specialty_name'],
+        'languages' => ['languageID', 'language_name'],
+        'zocdoc' => ['zocdocID', 'zocdoc_name'],
+        'hospitals' => ['hospitalID', 'hospital_name'],
+        'insurances' => ['insuranceID', 'insurance_name', 'insurance_type'],
+        'doctor_specialties' => ['doctorID', 'specialtyID'],
+        'doctor_language' => ['doctorID', 'languageID'],
+        'doctor_zocdoc' => ['doctorID', 'zocdocID'],
+        'doctor_insurance' => ['doctorID', 'insuranceID']
+    ];
+    
+    foreach ($required_schema as $table_name => $required_columns) {
+        $full_table_name = $wpdb->prefix . $table_name;
+        
+        // Check if table exists
+        $table_exists = $wpdb->get_var($wpdb->prepare(
+            "SHOW TABLES LIKE %s",
+            $full_table_name
+        ));
+        
+        if (!$table_exists) {
+            $results['valid'] = false;
+            $results['missing_tables'][] = $table_name;
+            $results['tables'][$table_name] = [
+                'exists' => false,
+                'missing_columns' => $required_columns
+            ];
+            continue;
+        }
+        
+        // Get existing columns
+        $existing_columns = $wpdb->get_results("DESCRIBE $full_table_name");
+        $existing_column_names = array_map(function($col) {
+            return $col->Field;
+        }, $existing_columns);
+        
+        // Check for missing columns
+        $missing_columns = array_diff($required_columns, $existing_column_names);
+        
+        $results['tables'][$table_name] = [
+            'exists' => true,
+            'total_columns' => count($existing_column_names),
+            'required_columns' => count($required_columns),
+            'missing_columns' => $missing_columns
+        ];
+        
+        if (!empty($missing_columns)) {
+            $results['valid'] = false;
+            $results['missing_columns'][$table_name] = $missing_columns;
+        }
+    }
+    
+    return $results;
+}
+
+/**
+ * Auto-fix database schema issues
+ *
+ * @return array Fix results
+ */
+function fad_fix_database_schema() {
+    global $wpdb;
+    
+    $results = [
+        'success' => true,
+        'tables_created' => [],
+        'columns_added' => [],
+        'columns_removed' => [],
+        'errors' => []
+    ];
+    
+    try {
+        // First remove unnecessary duplicate columns
+        $unnecessary_columns = [
+            'education_training',
+            'board_certification', 
+            'hospital_affiliations'
+        ];
+        
+        foreach ($unnecessary_columns as $column) {
+            // Check if column exists
+            $column_exists = $wpdb->get_results($wpdb->prepare(
+                "SHOW COLUMNS FROM {$wpdb->prefix}doctors LIKE %s",
+                $column
+            ));
+            
+            if (!empty($column_exists)) {
+                $sql = "ALTER TABLE {$wpdb->prefix}doctors DROP COLUMN $column";
+                $result = $wpdb->query($sql);
+                if ($result !== false) {
+                    $results['columns_removed'][] = $column;
+                } else {
+                    $results['errors'][] = "Failed to remove column: $column - " . $wpdb->last_error;
+                }
+            }
+        }
+        
+        // Add missing required columns
+        $required_columns = [
+            'full_name' => 'VARCHAR(255) DEFAULT NULL',
+            'npi' => 'VARCHAR(20) DEFAULT NULL',
+            'accept_medi_cal' => 'TINYINT(1) DEFAULT NULL',
+            'accepts_new_patients' => 'TINYINT(1) DEFAULT NULL'
+        ];
+        
+        foreach ($required_columns as $column => $definition) {
+            // Check if column exists
+            $column_exists = $wpdb->get_results($wpdb->prepare(
+                "SHOW COLUMNS FROM {$wpdb->prefix}doctors LIKE %s",
+                $column
+            ));
+            
+            if (empty($column_exists)) {
+                $sql = "ALTER TABLE {$wpdb->prefix}doctors ADD COLUMN $column $definition";
+                $result = $wpdb->query($sql);
+                if ($result !== false) {
+                    $results['columns_added'][] = $column;
+                } else {
+                    $results['errors'][] = "Failed to add column: $column - " . $wpdb->last_error;
+                }
+            }
+        }
+        
+        // Include the table creation file for other tables
+        require_once plugin_dir_path(__FILE__) . 'create-tables.php';
+        
+        // Call the table creation function
+        fad_create_tables();
+        
+        $message_parts = [];
+        if (!empty($results['columns_removed'])) {
+            $message_parts[] = "Removed duplicate columns: " . implode(', ', $results['columns_removed']);
+        }
+        if (!empty($results['columns_added'])) {
+            $message_parts[] = "Added missing columns: " . implode(', ', $results['columns_added']);
+        }
+        $message_parts[] = "Database schema has been updated successfully.";
+        
+        $results['message'] = implode(' ', $message_parts);
+        
+    } catch (Exception $e) {
+        $results['success'] = false;
+        $results['errors'][] = $e->getMessage();
+    }
+    
+    return $results;
+}
+
+/**
+ * Parse education training data from API format
+ *
+ * @param array $education_training Array of education strings from API
+ * @return array Parsed education data
+ */
+function fad_parse_education_training($education_training) {
+    $parsed = [
+        'medical_school' => '',
+        'internship' => '',
+        'residency' => '',
+        'fellowship' => '',
+        'certification' => ''
+    ];
+    
+    if (!is_array($education_training)) {
+        return $parsed;
+    }
+    
+    foreach ($education_training as $entry) {
+        if (empty($entry)) continue;
+        
+        // Remove timestamp and pipe characters: "1996-09-30|844041600|" becomes ""
+        $cleaned = preg_replace('/^\d{4}-\d{2}-\d{2}\|\d+\|/', '', $entry);
+        $cleaned = preg_replace('/^\|\|/', '', $cleaned); // Remove leading ||
+        $cleaned = trim($cleaned);
+        
+        if (empty($cleaned)) continue;
+        
+        // Split by comma to get type and institution
+        $parts = explode(',', $cleaned, 2);
+        if (count($parts) < 2) continue;
+        
+        $type = trim($parts[0]);
+        $institution = trim($parts[1]);
+        
+        // Map to appropriate field based on type
+        $type_lower = strtolower($type);
+        if (strpos($type_lower, 'medical school') !== false) {
+            $parsed['medical_school'] = $institution;
+        } elseif (strpos($type_lower, 'internship') !== false) {
+            $parsed['internship'] = $institution;
+        } elseif (strpos($type_lower, 'residency') !== false) {
+            $parsed['residency'] = $institution;
+        } elseif (strpos($type_lower, 'fellowship') !== false) {
+            $parsed['fellowship'] = $institution;
+        } elseif (strpos($type_lower, 'certification') !== false || strpos($type_lower, 'board') !== false) {
+            $parsed['certification'] = $institution;
+        }
+    }
+    
+    return $parsed;
 }
 
 /**
@@ -859,4 +1424,288 @@ function fad_cleanup_duplicates($dry_run = true) {
     }
     
     return $results;
+}
+
+/**
+ * Import a single physician from API data
+ *
+ * @param array $physician_data Physician data from API
+ * @return array Result with success status and action taken
+ */
+function fad_import_single_physician($physician_data) {
+    global $wpdb;
+    
+    $result = [
+        'success' => false,
+        'action' => '',
+        'error' => '',
+        'doctor_id' => null
+    ];
+    
+    try {
+        // Extract basic physician data
+        $first_name = sanitize_text_field($physician_data['first_name'] ?? '');
+        $last_name = sanitize_text_field($physician_data['last_name'] ?? '');
+        $provider_key = sanitize_text_field($physician_data['provider_key'] ?? '');
+        
+        if (empty($first_name) || empty($last_name)) {
+            $result['error'] = 'Missing required physician name data';
+            return $result;
+        }
+        
+        // Check if physician already exists (by idme/provider_key or name combination)
+        $existing_doctor = null;
+        if (!empty($provider_key)) {
+            $existing_doctor = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}doctors WHERE idme = %s",
+                $provider_key
+            ));
+        }
+        
+        if (!$existing_doctor) {
+            // Fallback: check by name
+            $existing_doctor = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}doctors WHERE first_name = %s AND last_name = %s",
+                $first_name,
+                $last_name
+            ));
+        }
+        
+        // Prepare physician data for database (matching actual table structure and API data)
+        $doctor_data = [
+            'first_name' => $first_name,
+            'last_name' => $last_name,
+            'full_name' => sanitize_text_field($physician_data['full_name'] ?? ''),
+            'degree' => sanitize_text_field($physician_data['suffix'] ?? ''),
+            'idme' => $provider_key, // Using idme field for provider_key
+            'gender' => !empty($physician_data['gender']) ? sanitize_text_field($physician_data['gender'][0]['name'] ?? '') : '',
+            'biography' => sanitize_textarea_field($physician_data['about_me'] ?? ''),
+            'accepts_new_patients' => isset($physician_data['accepts_new_patients']) ? (bool)$physician_data['accepts_new_patients'] : false,
+            'accept_medi_cal' => isset($physician_data['accept_medi_cal']) ? (bool)$physician_data['accept_medi_cal'] : false,
+        ];
+        
+        // Extract and process NPI
+        if (!empty($physician_data['npi']) && is_array($physician_data['npi'])) {
+            $doctor_data['npi'] = sanitize_text_field($physician_data['npi'][0]);
+        }
+        
+        // Extract and process hospital affiliations
+        if (!empty($physician_data['hospital_affiliations']) && is_array($physician_data['hospital_affiliations'])) {
+            $doctor_data['hospitalNames'] = implode(', ', array_map('sanitize_text_field', $physician_data['hospital_affiliations']));
+        }
+        
+        // Process education_training data
+        if (!empty($physician_data['education_training']) && is_array($physician_data['education_training'])) {
+            $medical_schools = [];
+            $internships = [];
+            $residencies = [];
+            $fellowships = [];
+            
+            foreach ($physician_data['education_training'] as $education) {
+                $education = sanitize_text_field($education);
+                if (stripos($education, 'Medical School') !== false) {
+                    $medical_schools[] = str_replace(['||Medical School, ', '||Medical School,'], '', $education);
+                } elseif (stripos($education, 'Internship') !== false) {
+                    $internships[] = str_replace(['||Internship, ', '||Internship,'], '', $education);
+                } elseif (stripos($education, 'Residency') !== false) {
+                    $residencies[] = str_replace(['||Residency, ', '||Residency,'], '', $education);
+                } elseif (stripos($education, 'Fellowship') !== false) {
+                    $fellowships[] = str_replace(['||Fellowship, ', '||Fellowship,'], '', $education);
+                }
+            }
+            
+            $doctor_data['medical_school'] = implode(', ', $medical_schools);
+            $doctor_data['internship'] = implode(', ', $internships);
+            $doctor_data['residency'] = implode(', ', $residencies);
+            $doctor_data['fellowship'] = implode(', ', $fellowships);
+        }
+        
+        // Process board_certification - extract organization name only (after dates/numbers)
+        if (!empty($physician_data['board_certification']) && is_array($physician_data['board_certification'])) {
+            $certifications = [];
+            foreach ($physician_data['board_certification'] as $cert) {
+                // Format: "2002-07-31|1028073600|American Board of Pediatrics"
+                $parts = explode('|', $cert);
+                if (count($parts) >= 3) {
+                    $certifications[] = sanitize_text_field($parts[2]); // Get the organization name
+                }
+            }
+            $doctor_data['certification'] = implode(', ', $certifications);
+        }
+        
+        // Extract location data (matching actual table structure)
+        if (!empty($physician_data['location']) && is_array($physician_data['location'])) {
+            $location = $physician_data['location'][0];
+            $address_parts = [];
+            if (!empty($location['address_line1'])) $address_parts[] = $location['address_line1'];
+            if (!empty($location['address_line2'])) $address_parts[] = $location['address_line2'];
+            
+            $doctor_data['address'] = sanitize_text_field(implode(', ', $address_parts));
+            $doctor_data['city'] = sanitize_text_field($location['locality'] ?? '');
+            $doctor_data['state'] = sanitize_text_field($location['administrative_area'] ?? '');
+            $doctor_data['zip'] = sanitize_text_field($location['postal_code'] ?? '');
+            $doctor_data['phone_number'] = sanitize_text_field($location['address_phonenumber'] ?? '');
+            $doctor_data['practice_name'] = sanitize_text_field($location['organization'] ?? '');
+        }
+        
+        // Extract geolocation
+        if (!empty($physician_data['geolocation']) && is_array($physician_data['geolocation'])) {
+            $geolocation = $physician_data['geolocation'][0];
+            if (strpos($geolocation, ',') !== false) {
+                list($lat, $lng) = explode(',', $geolocation, 2);
+                $doctor_data['latitude'] = (float)trim($lat);
+                $doctor_data['longitude'] = (float)trim($lng);
+            }
+        }
+        
+        // Generate slug
+        $degree = $doctor_data['degree'];
+        $slug = fad_slugify_doctor($first_name, $last_name, $degree);
+        $doctor_data['slug'] = fad_ensure_unique_slug($slug, $existing_doctor ? $existing_doctor->doctorID : null);
+        
+        if ($existing_doctor) {
+            // Update existing physician
+            $doctor_data['doctorID'] = $existing_doctor->doctorID;
+            $updated = $wpdb->update(
+                $wpdb->prefix . 'doctors',
+                $doctor_data,
+                ['doctorID' => $existing_doctor->doctorID]
+            );
+            
+            if ($updated !== false) {
+                $result['success'] = true;
+                $result['action'] = 'updated';
+                $result['doctor_id'] = $existing_doctor->doctorID;
+                
+                // Update related data
+                fad_update_physician_relationships($existing_doctor->doctorID, $physician_data);
+            } else {
+                $result['error'] = 'Failed to update physician in database: ' . $wpdb->last_error;
+            }
+        } else {
+            // Insert new physician (created_at will be set automatically)
+            $inserted = $wpdb->insert($wpdb->prefix . 'doctors', $doctor_data);
+            
+            if ($inserted) {
+                $doctor_id = $wpdb->insert_id;
+                $result['success'] = true;
+                $result['action'] = 'inserted';
+                $result['doctor_id'] = $doctor_id;
+                
+                // Insert related data
+                fad_update_physician_relationships($doctor_id, $physician_data);
+            } else {
+                $result['error'] = 'Failed to insert physician into database: ' . $wpdb->last_error;
+            }
+        }
+        
+    } catch (Exception $e) {
+        $result['error'] = 'Exception: ' . $e->getMessage();
+    }
+    
+    return $result;
+}
+
+/**
+ * Update physician relationships (specialties, languages, etc.)
+ *
+ * @param int $doctor_id Doctor ID
+ * @param array $physician_data Physician data from API
+ */
+function fad_update_physician_relationships($doctor_id, $physician_data) {
+    global $wpdb;
+    
+    // Clear existing relationships
+    $wpdb->delete($wpdb->prefix . 'doctor_specialties', ['doctorID' => $doctor_id]);
+    $wpdb->delete($wpdb->prefix . 'doctor_language', ['doctorID' => $doctor_id]);
+    $wpdb->delete($wpdb->prefix . 'doctor_insurance', ['doctorID' => $doctor_id]);
+    
+    // Handle specialties
+    if (!empty($physician_data['specialties']) && is_array($physician_data['specialties'])) {
+        foreach ($physician_data['specialties'] as $specialty_data) {
+            $specialty_name = trim($specialty_data['name'] ?? '');
+            if (!empty($specialty_name)) {
+                // Get or create specialty
+                $specialty_id = $wpdb->get_var($wpdb->prepare(
+                    "SELECT specialtyID FROM {$wpdb->prefix}specialties WHERE LOWER(TRIM(specialty_name)) = %s",
+                    strtolower(trim($specialty_name))
+                ));
+                
+                if (!$specialty_id) {
+                    $wpdb->insert($wpdb->prefix . 'specialties', ['specialty_name' => trim($specialty_name)]);
+                    $specialty_id = $wpdb->insert_id;
+                }
+                
+                // Link doctor to specialty
+                $wpdb->insert($wpdb->prefix . 'doctor_specialties', [
+                    'doctorID' => $doctor_id,
+                    'specialtyID' => $specialty_id
+                ]);
+            }
+        }
+    }
+    
+    // Handle languages
+    if (!empty($physician_data['languages_spoken_by_doctor']) && is_array($physician_data['languages_spoken_by_doctor'])) {
+        foreach ($physician_data['languages_spoken_by_doctor'] as $language_data) {
+            $language_name = trim($language_data['name'] ?? '');
+            if (!empty($language_name)) {
+                // Get or create language
+                $language_id = $wpdb->get_var($wpdb->prepare(
+                    "SELECT languageID FROM {$wpdb->prefix}languages WHERE LOWER(TRIM(language)) = %s",
+                    strtolower(trim($language_name))
+                ));
+                
+                if (!$language_id) {
+                    $wpdb->insert($wpdb->prefix . 'languages', ['language' => trim($language_name)]);
+                    $language_id = $wpdb->insert_id;
+                }
+                
+                // Link doctor to language
+                $wpdb->insert($wpdb->prefix . 'doctor_language', [
+                    'doctorID' => $doctor_id,
+                    'languageID' => $language_id
+                ]);
+            }
+        }
+    }
+    
+    // Handle insurance networks
+    $insurance_types = [
+        'hmo_networks' => 'hmo',
+        'ppo_networks' => 'ppo',
+        'acn_networks' => 'acn',
+        'aco_networks' => 'aco',
+        'insurancePlanLinks' => 'plan_link'
+    ];
+    
+    foreach ($insurance_types as $api_field => $type) {
+        if (!empty($physician_data[$api_field]) && is_array($physician_data[$api_field])) {
+            foreach ($physician_data[$api_field] as $insurance_name) {
+                $insurance_name = trim($insurance_name);
+                if (!empty($insurance_name)) {
+                    // Get or create insurance
+                    $insurance_id = $wpdb->get_var($wpdb->prepare(
+                        "SELECT insuranceID FROM {$wpdb->prefix}insurances WHERE LOWER(TRIM(insurance_name)) = %s AND insurance_type = %s",
+                        strtolower(trim($insurance_name)),
+                        $type
+                    ));
+                    
+                    if (!$insurance_id) {
+                        $wpdb->insert($wpdb->prefix . 'insurances', [
+                            'insurance_name' => trim($insurance_name),
+                            'insurance_type' => $type
+                        ]);
+                        $insurance_id = $wpdb->insert_id;
+                    }
+                    
+                    // Link doctor to insurance
+                    $wpdb->insert($wpdb->prefix . 'doctor_insurance', [
+                        'doctorID' => $doctor_id,
+                        'insuranceID' => $insurance_id
+                    ]);
+                }
+            }
+        }
+    }
 }

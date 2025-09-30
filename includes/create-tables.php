@@ -16,6 +16,7 @@ function fnd_create_tables() {
                 idme VARCHAR(100),
                 first_name VARCHAR(255),
                 last_name VARCHAR(255),
+                full_name VARCHAR(255),
                 email VARCHAR(255),
                 phone_number VARCHAR(50),
                 fax_number VARCHAR(50),
@@ -46,6 +47,9 @@ function fnd_create_tables() {
                 hmo_active_networks LONGTEXT,
                 ppo_active_network LONGTEXT,
                 slug VARCHAR(100),
+                npi VARCHAR(20),
+                accept_medi_cal BOOLEAN DEFAULT FALSE,
+                accepts_new_patients BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB $charset_collate;",
 
@@ -53,6 +57,13 @@ function fnd_create_tables() {
             "Languages" => "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}languages (
                 languageID INT AUTO_INCREMENT PRIMARY KEY,
                 language VARCHAR(255)
+            ) ENGINE=InnoDB $charset_collate;",
+            
+            // Insurances
+            "Insurances" => "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}insurances (
+                insuranceID INT AUTO_INCREMENT PRIMARY KEY,
+                insurance_name VARCHAR(255),
+                insurance_type ENUM('hmo', 'ppo', 'acn', 'aco', 'plan_link') DEFAULT 'ppo'
             ) ENGINE=InnoDB $charset_collate;",
 
             // Doctor_Language
@@ -63,6 +74,17 @@ function fnd_create_tables() {
                 FOREIGN KEY (doctorID) REFERENCES {$wpdb->prefix}doctors(doctorID)
                     ON DELETE CASCADE ON UPDATE CASCADE,
                 FOREIGN KEY (languageID) REFERENCES {$wpdb->prefix}languages(languageID)
+                    ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB $charset_collate;",
+            
+            // Doctor_Insurance
+            "Doctor_Insurance" => "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}doctor_insurance (
+                doctorID INT,
+                insuranceID INT,
+                PRIMARY KEY (doctorID, insuranceID),
+                FOREIGN KEY (doctorID) REFERENCES {$wpdb->prefix}doctors(doctorID)
+                    ON DELETE CASCADE ON UPDATE CASCADE,
+                FOREIGN KEY (insuranceID) REFERENCES {$wpdb->prefix}insurances(insuranceID)
                     ON DELETE CASCADE ON UPDATE CASCADE
             ) ENGINE=InnoDB $charset_collate;",
             

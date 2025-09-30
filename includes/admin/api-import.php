@@ -20,12 +20,22 @@ function fnd_render_api_import_page() {
             <div id="api-test-result"></div>
         </div>
         
+        <!-- Database Schema Validation -->
+        <div class="card">
+            <h2>Database Schema Validation</h2>
+            <p>Validate that the database has all required tables and columns for importing API data.</p>
+            <button id="validate-schema" class="button">Check Database Schema</button>
+            <button id="fix-schema" class="button button-primary" style="display:none;">Fix Database Schema</button>
+            <div id="schema-validation-result"></div>
+        </div>
+        
         <!-- Import Physicians -->
         <div class="card">
             <h2>Import Physicians</h2>
             <p>Import physician data from the external API.</p>
             
             <form id="api-import-form">
+                <input type="hidden" id="dry-run-mode" name="dry_run" value="0" />
                 <table class="form-table">
                     <tr>
                         <th scope="row">Search Parameters (Optional)</th>
@@ -43,25 +53,48 @@ function fnd_render_api_import_page() {
                             <small>Maximum number of physicians to import (1-1000). <strong>Note:</strong> If "Import All Pages" is checked, this limit is ignored and ALL ~3,237 physicians will be imported.</small>
                             <br><br>
                             
-                            <label>
-                                <input type="checkbox" id="import-all-pages" name="import_all_pages" value="1" />
-                                <strong>Import All Pages</strong> - Import all physicians from all pages (may take a long time)
-                            </label>
+                            <label for="batch-size">Batch Size:</label>
+                            <input type="number" id="batch-size" name="batch_size" value="50" min="10" max="100" />
+                            <small>Number of physicians to process per batch (10-100). Smaller batches prevent timeouts but take longer.</small>
                             <br><br>
                             
                             <label>
-                                <input type="checkbox" id="dry-run-mode" name="dry_run" value="1" />
-                                <strong>Dry Run Mode</strong> - Preview what will be imported without making changes
+                                <input type="checkbox" id="import-all-pages" name="import_all_pages" value="1" />
+                                <strong>Import All Pages</strong> - Import all physicians from all pages (uses batch processing)
                             </label>
                         </td>
                     </tr>
                 </table>
                 
                 <p class="submit">
-                    <button type="submit" id="start-import" class="button-primary">Start Import</button>
-                    <button type="button" id="preview-import" class="button">Preview Import (Dry Run)</button>
+                    <button type="button" id="start-batch-import" class="button-primary button-large">Import Physicians</button>
+                    <button type="button" id="preview-batch-import" class="button">Preview Import (No Changes)</button>
                 </p>
             </form>
+            
+            <div id="batch-progress" style="display: none;">
+                <h3>Batch Import Progress</h3>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="progress-current">0</span> / <span id="progress-total">0</span> physicians
+                        (<span id="progress-percentage">0</span>%)
+                    </div>
+                </div>
+                <div class="batch-stats">
+                    <span>Batch <span id="current-batch">0</span> of <span id="total-batches">0</span></span> | 
+                    <span>Imported: <span id="total-imported">0</span></span> | 
+                    <span>Updated: <span id="total-updated">0</span></span> | 
+                    <span>Skipped: <span id="total-skipped">0</span></span>
+                </div>
+                <div class="batch-controls">
+                    <button type="button" id="pause-import" class="button">Pause</button>
+                    <button type="button" id="cancel-import" class="button button-secondary">Cancel</button>
+                </div>
+                <div id="batch-messages"></div>
+            </div>
             
             <div id="import-progress" style="display: none;">
                 <div class="spinner is-active"></div>
@@ -91,6 +124,29 @@ function fnd_render_api_import_page() {
             </div>
             
             <div id="duplicate-results"></div>
+        </div>
+        
+        <!-- Database Management -->
+        <div class="card">
+            <h2>Database Management</h2>
+            <p><strong>Warning:</strong> These actions are permanent and cannot be undone. Please backup your database before proceeding.</p>
+            
+            <div style="margin-bottom: 15px;">
+                <button id="delete-all-physicians" class="button button-secondary" style="background-color: #dc3232; border-color: #dc3232; color: white;">Delete All Physicians</button>
+                <button id="confirm-delete-all" class="button button-primary" style="display: none; background-color: #dc3232; border-color: #dc3232;">Confirm Delete All</button>
+                <button id="cancel-delete-all" class="button" style="display: none;">Cancel</button>
+            </div>
+            
+            <div id="delete-result"></div>
+            
+            <div id="physician-count-info">
+                <?php
+                global $wpdb;
+                $doctors_table = $wpdb->prefix . 'doctors';
+                $count = $wpdb->get_var("SELECT COUNT(*) FROM {$doctors_table}");
+                echo "<p><strong>Current physicians in database:</strong> " . number_format($count) . "</p>";
+                ?>
+            </div>
         </div>
         
         <!-- API Information -->

@@ -157,6 +157,125 @@
     margin-right: 0;
 }
 
+/* Database Management Styles */
+#delete-all-physicians {
+    background-color: #dc3232 !important;
+    border-color: #dc3232 !important;
+    color: white !important;
+}
+
+#delete-all-physicians:hover {
+    background-color: #b32d2e !important;
+    border-color: #b32d2e !important;
+}
+
+#confirm-delete-all {
+    background-color: #dc3232 !important;
+    border-color: #dc3232 !important;
+    color: white !important;
+}
+
+#confirm-delete-all:hover {
+    background-color: #b32d2e !important;
+    border-color: #b32d2e !important;
+}
+
+#physician-count-info {
+    padding: 10px;
+    background-color: #f1f1f1;
+    border-left: 4px solid #0073aa;
+    margin-top: 15px;
+}
+
+/* Batch Import Progress Styles */
+.progress-container {
+    margin: 15px 0;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 30px;
+    background-color: #f1f1f1;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid #ddd;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #0073aa 0%, #005a87 100%);
+    width: 0%;
+    transition: width 0.3s ease;
+    position: relative;
+}
+
+.progress-text {
+    text-align: center;
+    margin: 10px 0;
+    font-weight: bold;
+    font-size: 16px;
+}
+
+.batch-stats {
+    background-color: #f9f9f9;
+    padding: 10px;
+    border-radius: 4px;
+    margin: 10px 0;
+    text-align: center;
+}
+
+.batch-stats span {
+    margin: 0 10px;
+    font-weight: bold;
+}
+
+.batch-controls {
+    text-align: center;
+    margin: 15px 0;
+}
+
+.batch-controls button {
+    margin: 0 5px;
+}
+
+#batch-messages {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    padding: 10px;
+    background-color: #fff;
+    margin-top: 15px;
+}
+
+#batch-messages .batch-message {
+    padding: 5px 0;
+    border-bottom: 1px solid #eee;
+}
+
+#batch-messages .batch-message:last-child {
+    border-bottom: none;
+}
+
+#batch-messages .batch-success {
+    color: #46b450;
+}
+
+#batch-messages .batch-error {
+    color: #dc3232;
+}
+
+#start-batch-import {
+    background-color: #0073aa !important;
+    border-color: #0073aa !important;
+    color: white !important;
+    font-weight: bold !important;
+}
+
+#start-batch-import:hover {
+    background-color: #005a87 !important;
+    border-color: #005a87 !important;
+}
+
     /* edit  doctor page css start here */
     .fnd-grid {
         display: grid;
