@@ -278,9 +278,33 @@ jQuery(document).ready(function($) {
                 button.prop('disabled', false).text('Sync Reference Data');
                 
                 if (response.success) {
-                    resultDiv.html('<div class="notice notice-success"><p>' + response.data + '</p></div>');
+                    var message = response.data.message || response.data;
+                    var details = '';
+                    
+                    // Add detailed breakdown if available
+                    if (response.data.details) {
+                        var syncDetails = response.data.details;
+                        var breakdown = [];
+                        
+                        if (syncDetails.languages_synced !== undefined) {
+                            breakdown.push('Languages synced: ' + syncDetails.languages_synced);
+                        }
+                        if (syncDetails.hospitals_synced !== undefined) {
+                            breakdown.push('Hospitals synced: ' + syncDetails.hospitals_synced);
+                        }
+                        if (syncDetails.insurances_synced !== undefined) {
+                            breakdown.push('Insurances synced: ' + syncDetails.insurances_synced);
+                        }
+                        
+                        if (breakdown.length > 0) {
+                            details = '<br><small>' + breakdown.join('<br>') + '</small>';
+                        }
+                    }
+                    
+                    resultDiv.html('<div class="notice notice-success"><p>' + message + details + '</p></div>');
                 } else {
-                    resultDiv.html('<div class="notice notice-error"><p><strong>Error:</strong> ' + response.data + '</p></div>');
+                    var errorMessage = response.data.message || response.data;
+                    resultDiv.html('<div class="notice notice-error"><p><strong>Error:</strong> ' + errorMessage + '</p></div>');
                 }
             },
             error: function() {
