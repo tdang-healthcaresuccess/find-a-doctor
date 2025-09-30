@@ -1584,7 +1584,15 @@ function fad_import_single_physician($physician_data) {
         
         // Extract and process hospital affiliations
         if (!empty($physician_data['hospital_affiliations']) && is_array($physician_data['hospital_affiliations'])) {
-            $doctor_data['hospitalNames'] = implode(', ', array_map('sanitize_text_field', $physician_data['hospital_affiliations']));
+            $cleaned_hospitals = [];
+            foreach ($physician_data['hospital_affiliations'] as $hospital) {
+                $hospital = sanitize_text_field($hospital);
+                // Skip "Hospital Waiver on File" entries
+                if (stripos($hospital, 'Hospital Waiver on File') === false && !empty(trim($hospital))) {
+                    $cleaned_hospitals[] = trim($hospital);
+                }
+            }
+            $doctor_data['hospitalNames'] = implode(', ', $cleaned_hospitals);
         }
         
         // Process education_training data
@@ -1596,14 +1604,70 @@ function fad_import_single_physician($physician_data) {
             
             foreach ($physician_data['education_training'] as $education) {
                 $education = sanitize_text_field($education);
+                
                 if (stripos($education, 'Medical School') !== false) {
                     $medical_schools[] = str_replace(['||Medical School, ', '||Medical School,'], '', $education);
                 } elseif (stripos($education, 'Internship') !== false) {
-                    $internships[] = str_replace(['||Internship, ', '||Internship,'], '', $education);
+                    // Extract institution name only (similar to board certification logic)
+                    // Format likely: "timestamp|timestamp|Institution Name" or "||Internship, Institution Name"
+                    $parts = explode('|', $education);
+                    if (count($parts) >= 3) {
+                        $institution = sanitize_text_field(trim($parts[2]));
+                        // Remove any remaining "Internship" text and clean up
+                        $institution = preg_replace('/\b(Internship|internship)\b,?\s*/i', '', $institution);
+                        $institution = trim($institution, ', ');
+                        if (!empty($institution)) {
+                            $internships[] = $institution;
+                        }
+                    } else {
+                        // Fallback: remove the prefix labels
+                        $cleaned = str_replace(['||Internship, ', '||Internship,', 'Internship, ', 'Internship,'], '', $education);
+                        $cleaned = preg_replace('/\b(Internship|internship)\b,?\s*/i', '', $cleaned);
+                        $cleaned = trim($cleaned, ', ');
+                        if (!empty($cleaned)) {
+                            $internships[] = $cleaned;
+                        }
+                    }
                 } elseif (stripos($education, 'Residency') !== false) {
-                    $residencies[] = str_replace(['||Residency, ', '||Residency,'], '', $education);
+                    // Extract institution name only
+                    $parts = explode('|', $education);
+                    if (count($parts) >= 3) {
+                        $institution = sanitize_text_field(trim($parts[2]));
+                        // Remove any remaining "Residency" text and clean up
+                        $institution = preg_replace('/\b(Residency|residency)\b,?\s*/i', '', $institution);
+                        $institution = trim($institution, ', ');
+                        if (!empty($institution)) {
+                            $residencies[] = $institution;
+                        }
+                    } else {
+                        // Fallback: remove the prefix labels
+                        $cleaned = str_replace(['||Residency, ', '||Residency,', 'Residency, ', 'Residency,'], '', $education);
+                        $cleaned = preg_replace('/\b(Residency|residency)\b,?\s*/i', '', $cleaned);
+                        $cleaned = trim($cleaned, ', ');
+                        if (!empty($cleaned)) {
+                            $residencies[] = $cleaned;
+                        }
+                    }
                 } elseif (stripos($education, 'Fellowship') !== false) {
-                    $fellowships[] = str_replace(['||Fellowship, ', '||Fellowship,'], '', $education);
+                    // Extract institution name only
+                    $parts = explode('|', $education);
+                    if (count($parts) >= 3) {
+                        $institution = sanitize_text_field(trim($parts[2]));
+                        // Remove any remaining "Fellowship" text and clean up
+                        $institution = preg_replace('/\b(Fellowship|fellowship)\b,?\s*/i', '', $institution);
+                        $institution = trim($institution, ', ');
+                        if (!empty($institution)) {
+                            $fellowships[] = $institution;
+                        }
+                    } else {
+                        // Fallback: remove the prefix labels
+                        $cleaned = str_replace(['||Fellowship, ', '||Fellowship,', 'Fellowship, ', 'Fellowship,'], '', $education);
+                        $cleaned = preg_replace('/\b(Fellowship|fellowship)\b,?\s*/i', '', $cleaned);
+                        $cleaned = trim($cleaned, ', ');
+                        if (!empty($cleaned)) {
+                            $fellowships[] = $cleaned;
+                        }
+                    }
                 }
             }
             
