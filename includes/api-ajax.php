@@ -416,8 +416,8 @@ function fad_handle_import_batch() {
         
         // Get session data to check for limits
         $session_data = get_transient('fad_import_session_' . get_current_user_id());
-        $user_limit = $session_data ? $session_data['user_limit'] : null;
-        $import_all_pages = $session_data ? $session_data['import_all_pages'] : false;
+        $user_limit = $session_data ? ($session_data['user_limit'] ?? null) : null;
+        $import_all_pages = $session_data ? ($session_data['import_all_pages'] ?? false) : false;
         
         // Get search parameters from form fields or session
         $search_params = [];

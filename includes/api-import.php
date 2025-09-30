@@ -22,9 +22,12 @@ function fad_import_doctors_batch($batch_size = 50, $current_batch = 0, $search_
     // Get session data to check for user limits
     $session_key = 'fad_import_session_' . get_current_user_id();
     $session_data = get_transient($session_key);
-    $user_limit = $session_data ? $session_data['user_limit'] : null;
-    $import_all_pages = $session_data ? $session_data['import_all_pages'] : false;
-    $session_total_physicians = $session_data ? $session_data['total_physicians'] : 0;
+    $user_limit = $session_data ? ($session_data['user_limit'] ?? null) : null;
+    $import_all_pages = $session_data ? ($session_data['import_all_pages'] ?? false) : false;
+    $session_total_physicians = $session_data ? ($session_data['total_physicians'] ?? 0) : 0;
+    
+    // Debug session data
+    error_log("Batch {$current_batch}: Session data available: " . ($session_data ? 'yes' : 'no') . ", user_limit: " . ($user_limit ?? 'null') . ", import_all_pages: " . ($import_all_pages ? 'true' : 'false') . ", total_physicians: " . $session_total_physicians);
     
     $results = [
         'success' => false,
@@ -146,6 +149,9 @@ function fad_import_doctors_batch($batch_size = 50, $current_batch = 0, $search_
             $results['has_more_batches'] = $results['processed_so_far'] < $results['total_physicians'];
         }
         
+        // Debug logging
+        error_log("Batch {$current_batch}: processed_so_far={$results['processed_so_far']}, total_physicians={$results['total_physicians']}, user_limit={$user_limit}, import_all_pages=" . ($import_all_pages ? 'true' : 'false') . ", has_more_batches=" . ($results['has_more_batches'] ? 'true' : 'false') . ", is_complete=" . ($results['is_complete'] ? 'true' : 'false'));
+        
         if (empty($collected_physicians)) {
             $results['success'] = true;
             $results['message'] = 'No more physicians to process';
@@ -167,9 +173,9 @@ function fad_import_doctors_batch($batch_size = 50, $current_batch = 0, $search_
             $session_data = get_transient($session_key);
             
             if ($session_data) {
-                $results['total_imported'] = $session_data['total_imported'] + $results['batch_imported'];
-                $results['total_updated'] = $session_data['total_updated'] + $results['batch_updated'];
-                $results['total_skipped'] = $session_data['total_skipped'] + $results['batch_skipped'];
+                $results['total_imported'] = ($session_data['total_imported'] ?? 0) + $results['batch_imported'];
+                $results['total_updated'] = ($session_data['total_updated'] ?? 0) + $results['batch_updated'];
+                $results['total_skipped'] = ($session_data['total_skipped'] ?? 0) + $results['batch_skipped'];
             } else {
                 $results['total_imported'] = $results['batch_imported'];
                 $results['total_updated'] = $results['batch_updated'];
@@ -178,6 +184,10 @@ function fad_import_doctors_batch($batch_size = 50, $current_batch = 0, $search_
             
             // Update session data
             set_transient($session_key, [
+                'user_limit' => $user_limit,
+                'import_all_pages' => $import_all_pages,
+                'total_physicians' => $session_total_physicians,
+                'search_params' => $search_params ?? [],
                 'total_imported' => $results['total_imported'],
                 'total_updated' => $results['total_updated'],
                 'total_skipped' => $results['total_skipped'],
@@ -1720,11 +1730,18 @@ function fad_update_physician_relationships($doctor_id, $physician_data) {
                     $specialty_id = $wpdb->insert_id;
                 }
                 
-                // Link doctor to specialty
-                $wpdb->insert($wpdb->prefix . 'doctor_specialties', [
-                    'doctorID' => $doctor_id,
-                    'specialtyID' => $specialty_id
-                ]);
+                // Link doctor to specialty (avoid duplicates)
+                $existing = $wpdb->get_var($wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$wpdb->prefix}doctor_specialties WHERE doctorID = %d AND specialtyID = %d",
+                    $doctor_id, $specialty_id
+                ));
+                
+                if (!$existing) {
+                    $wpdb->insert($wpdb->prefix . 'doctor_specialties', [
+                        'doctorID' => $doctor_id,
+                        'specialtyID' => $specialty_id
+                    ]);
+                }
             }
         }
     }
@@ -1745,11 +1762,18 @@ function fad_update_physician_relationships($doctor_id, $physician_data) {
                     $language_id = $wpdb->insert_id;
                 }
                 
-                // Link doctor to language
-                $wpdb->insert($wpdb->prefix . 'doctor_language', [
-                    'doctorID' => $doctor_id,
-                    'languageID' => $language_id
-                ]);
+                // Link doctor to language (avoid duplicates)
+                $existing = $wpdb->get_var($wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$wpdb->prefix}doctor_language WHERE doctorID = %d AND languageID = %d",
+                    $doctor_id, $language_id
+                ));
+                
+                if (!$existing) {
+                    $wpdb->insert($wpdb->prefix . 'doctor_language', [
+                        'doctorID' => $doctor_id,
+                        'languageID' => $language_id
+                    ]);
+                }
             }
         }
     }

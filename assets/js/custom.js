@@ -526,8 +526,11 @@ jQuery(document).ready(function($) {
                 dry_run: batchImportState.isDryRun ? '1' : '0'
             },
             success: function(response) {
+                console.log('Batch response:', response);
+                
                 if (response.success) {
                     var data = response.data;
+                    console.log('Batch data:', data);
                     
                     // Update totals
                     batchImportState.totalImported = data.total_imported || 0;
@@ -547,9 +550,13 @@ jQuery(document).ready(function($) {
                     
                     // Continue with next batch after a short delay
                     setTimeout(function() {
+                        console.log('Checking if should continue: is_complete=' + data.is_complete + ', has_more_batches=' + data.has_more_batches);
+                        
                         if (data.is_complete || !data.has_more_batches) {
+                            console.log('Import complete, stopping');
                             completeBatchImport();
                         } else {
+                            console.log('Continuing to next batch');
                             // Only increment batch counter if we're continuing
                             batchImportState.currentBatch++;
                             processBatch();
@@ -672,8 +679,24 @@ jQuery(document).ready(function($) {
             cancelBatchImport();
         }
     });
+    
+    // Function to refresh physician count display
+    function refreshPhysicianCount() {
+        $.ajax({
+            url: fad_ajax_object.ajaxurl,
+            type: 'POST',
+            data: {
+                action: 'fad_get_physician_count',
+                nonce: fad_ajax_object.nonce
+            },
+            success: function(response) {
+                if (response.success) {
+                    $('#physician-count-info').html('<p><strong>Current physicians in database:</strong> ' + response.data.count.toLocaleString() + '</p>');
+                }
+            },
+            error: function() {
+                console.log('Failed to refresh physician count');
+            }
+        });
+    }
 });
-
-
-
-
