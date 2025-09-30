@@ -66,6 +66,12 @@ function fnd_create_tables() {
                 insurance_type ENUM('hmo', 'ppo', 'acn', 'aco', 'plan_link') DEFAULT 'ppo'
             ) ENGINE=InnoDB $charset_collate;",
 
+            // Hospitals
+            "Hospitals" => "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}hospitals (
+                hospitalID INT AUTO_INCREMENT PRIMARY KEY,
+                hospital_name VARCHAR(255)
+            ) ENGINE=InnoDB $charset_collate;",
+
             // Doctor_Language
             "Doctor_Language" => "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}doctor_language (
                 doctorID INT,
@@ -85,6 +91,17 @@ function fnd_create_tables() {
                 FOREIGN KEY (doctorID) REFERENCES {$wpdb->prefix}doctors(doctorID)
                     ON DELETE CASCADE ON UPDATE CASCADE,
                 FOREIGN KEY (insuranceID) REFERENCES {$wpdb->prefix}insurances(insuranceID)
+                    ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB $charset_collate;",
+
+            // Doctor_Hospital
+            "Doctor_Hospital" => "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}doctor_hospital (
+                doctorID INT,
+                hospitalID INT,
+                PRIMARY KEY (doctorID, hospitalID),
+                FOREIGN KEY (doctorID) REFERENCES {$wpdb->prefix}doctors(doctorID)
+                    ON DELETE CASCADE ON UPDATE CASCADE,
+                FOREIGN KEY (hospitalID) REFERENCES {$wpdb->prefix}hospitals(hospitalID)
                     ON DELETE CASCADE ON UPDATE CASCADE
             ) ENGINE=InnoDB $charset_collate;",
             

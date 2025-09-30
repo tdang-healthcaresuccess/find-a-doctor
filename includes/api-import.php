@@ -417,12 +417,14 @@ function fad_import_doctors_from_api($search_params = [], $dry_run = false, $imp
         // Cache for lookups
         $language_cache = [];
         $specialty_cache = [];
+        $hospital_cache = [];
         $insert_language_relations = [];
         $insert_specialty_relations = [];
+        $insert_hospital_relations = [];
         
         foreach ($physicians as $physician_data) {
             try {
-                $result = fad_process_physician_data($physician_data, $language_cache, $specialty_cache, $insert_language_relations, $insert_specialty_relations, $dry_run);
+                $result = fad_process_physician_data($physician_data, $language_cache, $specialty_cache, $hospital_cache, $insert_language_relations, $insert_specialty_relations, $insert_hospital_relations, $dry_run);
                 
                 if ($dry_run) {
                     // In dry run mode, collect preview data
@@ -453,6 +455,11 @@ function fad_import_doctors_from_api($search_params = [], $dry_run = false, $imp
             if (!empty($insert_specialty_relations)) {
                 $values_sql = implode(',', $insert_specialty_relations);
                 $wpdb->query("INSERT IGNORE INTO {$wpdb->prefix}doctor_specialties (doctorID, specialtyID) VALUES $values_sql");
+            }
+            
+            if (!empty($insert_hospital_relations)) {
+                $values_sql = implode(',', $insert_hospital_relations);
+                $wpdb->query("INSERT IGNORE INTO {$wpdb->prefix}doctor_hospital (doctorID, hospitalID) VALUES $values_sql");
             }
         }
         
@@ -488,12 +495,14 @@ function fad_import_doctors_from_api($search_params = [], $dry_run = false, $imp
  * @param array $physician_data Raw physician data from API
  * @param array &$language_cache Reference to language cache
  * @param array &$specialty_cache Reference to specialty cache
+ * @param array &$hospital_cache Reference to hospital cache
  * @param array &$insert_language_relations Reference to language relations
  * @param array &$insert_specialty_relations Reference to specialty relations
+ * @param array &$insert_hospital_relations Reference to hospital relations
  * @param bool $dry_run If true, only preview without database changes
  * @return array Processing result
  */
-function fad_process_physician_data($physician_data, &$language_cache, &$specialty_cache, &$insert_language_relations, &$insert_specialty_relations, $dry_run = false) {
+function fad_process_physician_data($physician_data, &$language_cache, &$specialty_cache, &$hospital_cache, &$insert_language_relations, &$insert_specialty_relations, &$insert_hospital_relations, $dry_run = false) {
     global $wpdb;
     
     // Map API fields to database fields
@@ -594,6 +603,10 @@ function fad_process_physician_data($physician_data, &$language_cache, &$special
                 "{$wpdb->prefix}doctor_specialties", 
                 ['doctorID' => $existing_doctor_id]
             );
+            $wpdb->delete(
+                "{$wpdb->prefix}doctor_hospital", 
+                ['doctorID' => $existing_doctor_id]
+            );
         }
     } else {
         $action = 'imported';
@@ -621,6 +634,7 @@ function fad_process_physician_data($physician_data, &$language_cache, &$special
         'data' => $doctor_data,
         'languages' => [],
         'specialties' => [],
+        'hospitals' => [],
         'duplicate_check_method' => $duplicate_check_method ?? 'none'
     ];
     
@@ -676,6 +690,34 @@ function fad_process_physician_data($physician_data, &$language_cache, &$special
                 }
                 
                 $insert_specialty_relations[] = $wpdb->prepare("(%d, %d)", $doctor_id, $specialty_cache[$specialty_name]);
+            }
+        }
+    }
+    
+    // Process hospital affiliations
+    if (isset($physician_data['hospital_affiliations']) && is_array($physician_data['hospital_affiliations'])) {
+        foreach ($physician_data['hospital_affiliations'] as $hospital_name) {
+            $hospital_name = trim($hospital_name);
+            if (empty($hospital_name)) continue;
+            
+            $preview_data['hospitals'][] = $hospital_name;
+            
+            if (!$dry_run) {
+                if (!isset($hospital_cache[$hospital_name])) {
+                    $hospital_id = $wpdb->get_var($wpdb->prepare(
+                        "SELECT hospitalID FROM {$wpdb->prefix}hospitals WHERE hospital_name = %s",
+                        $hospital_name
+                    ));
+                    
+                    if (!$hospital_id) {
+                        $wpdb->insert("{$wpdb->prefix}hospitals", ['hospital_name' => $hospital_name]);
+                        $hospital_id = $wpdb->insert_id;
+                    }
+                    
+                    $hospital_cache[$hospital_name] = $hospital_id;
+                }
+                
+                $insert_hospital_relations[] = $wpdb->prepare("(%d, %d)", $doctor_id, $hospital_cache[$hospital_name]);
             }
         }
     }
@@ -865,7 +907,7 @@ function fad_map_api_to_db_fields($api_data) {
     $mapped['primary_care'] = isset($api_data['primary_care']) ? ($api_data['primary_care'] ? 1 : 0) : 0;
     $mapped['prov_status'] = $api_data['prov_status'] ?? '';
     $mapped['is_ab_directory'] = 0; // Default value
-    $mapped['is_bt_directory'] = 0; // Default value
+    $mapped['is_bt_directory'] = 1; // Default value
     
     return $mapped;
 }
@@ -885,23 +927,18 @@ function fad_sync_reference_data() {
     ];
     
     try {
-        // Get sample data from API to extract reference data
-        $sample_response = FAD_API_Client::search_physicians([], 0);
+        // Sync languages from dedicated endpoint
+        $results['languages_synced'] = fad_sync_languages();
         
+        // Sync hospitals from dedicated endpoint  
+        $results['hospitals_synced'] = fad_sync_hospitals();
+        
+        // Sync insurances from physician search (no dedicated endpoint)
+        $sample_response = FAD_API_Client::search_physicians([], 0);
         if (!is_wp_error($sample_response)) {
-            // Sync languages
-            $results['languages_synced'] = fad_sync_languages($sample_response);
-            
-            // Sync hospitals  
-            $results['hospitals_synced'] = fad_sync_hospitals($sample_response);
-            
-            // Sync insurances
-            $results['insurances_synced'] = fad_sync_insurances($sample_response);
-            
-            // Sync insurances
             $results['insurances_synced'] = fad_sync_insurances($sample_response);
         } else {
-            $results['errors'][] = 'API connection failed: ' . $sample_response->get_error_message();
+            $results['errors'][] = 'Insurance sync failed: ' . $sample_response->get_error_message();
         }
         
         $results['success'] = empty($results['errors']);
@@ -914,92 +951,137 @@ function fad_sync_reference_data() {
 }
 
 /**
- * Sync languages from API response
+ * Sync languages from dedicated API endpoint
  *
- * @param array $api_response
  * @return int Number of languages synced
  */
-function fad_sync_languages($api_response) {
+function fad_sync_languages() {
     global $wpdb;
     
     $synced = 0;
     
-    // The languages endpoint might return different format, 
-    // but we can also extract from the search results
-    if (isset($api_response['rows']) && is_array($api_response['rows'])) {
-        $all_languages = [];
+    try {
+        // Use the dedicated languages API endpoint
+        $languages_response = FAD_API_Client::get_languages();
         
-        // Extract all unique languages from physician data
-        foreach ($api_response['rows'] as $physician) {
-            if (isset($physician['languages_spoken_by_doctor']) && is_array($physician['languages_spoken_by_doctor'])) {
-                foreach ($physician['languages_spoken_by_doctor'] as $lang_obj) {
-                    $lang_name = trim($lang_obj['name'] ?? '');
-                    if (!empty($lang_name)) {
-                        $all_languages[] = $lang_name;
-                    }
-                }
-            }
+        if (is_wp_error($languages_response)) {
+            error_log('Languages API Error: ' . $languages_response->get_error_message());
+            return 0;
         }
         
-        // Remove duplicates and sync
-        $unique_languages = array_unique($all_languages);
+        $languages_data = [];
         
-        foreach ($unique_languages as $language_name) {
+        // Handle different possible response formats
+        if (isset($languages_response['data']) && is_array($languages_response['data'])) {
+            $languages_data = $languages_response['data'];
+        } elseif (isset($languages_response['rows']) && is_array($languages_response['rows'])) {
+            $languages_data = $languages_response['rows'];
+        } elseif (is_array($languages_response)) {
+            // If the response is directly an array of languages
+            $languages_data = $languages_response;
+        }
+        
+        foreach ($languages_data as $language_item) {
+            $language_name = '';
+            
+            // Handle different possible data structures
+            if (is_string($language_item)) {
+                $language_name = trim($language_item);
+            } elseif (is_array($language_item)) {
+                // Try common field names
+                $language_name = trim($language_item['name'] ?? $language_item['language'] ?? $language_item['language_name'] ?? '');
+            }
+            
+            if (empty($language_name)) {
+                continue;
+            }
+            
+            // Check if language already exists (case-insensitive)
             $existing = $wpdb->get_var($wpdb->prepare(
-                "SELECT languageID FROM {$wpdb->prefix}languages WHERE language = %s",
-                $language_name
+                "SELECT languageID FROM {$wpdb->prefix}languages WHERE LOWER(TRIM(language)) = %s",
+                strtolower($language_name)
             ));
             
             if (!$existing) {
-                $wpdb->insert("{$wpdb->prefix}languages", ['language' => $language_name]);
+                $wpdb->insert("{$wpdb->prefix}languages", [
+                    'language' => $language_name
+                ]);
                 $synced++;
             }
         }
-    } elseif (isset($api_response['data']) && is_array($api_response['data'])) {
-        // Handle if API returns direct language list
-        foreach ($api_response['data'] as $language_data) {
-            $language_name = trim($language_data['name'] ?? $language_data['language'] ?? '');
-            
-            if (empty($language_name)) continue;
-            
-            $existing = $wpdb->get_var($wpdb->prepare(
-                "SELECT languageID FROM {$wpdb->prefix}languages WHERE language = %s",
-                $language_name
-            ));
-            
-            if (!$existing) {
-                $wpdb->insert("{$wpdb->prefix}languages", ['language' => $language_name]);
-                $synced++;
-            }
-        }
+        
+    } catch (Exception $e) {
+        error_log('Languages sync error: ' . $e->getMessage());
     }
     
     return $synced;
 }
 
 /**
- * Sync hospitals from API response
+ * Sync hospitals from dedicated API endpoint
  *
- * @param array $api_response
- * @return int Number of hospitals processed
+ * @return int Number of hospitals synced
  */
-function fad_sync_hospitals($api_response) {
-    // Extract unique hospital affiliations from physician data
-    $all_hospitals = [];
+function fad_sync_hospitals() {
+    global $wpdb;
     
-    if (isset($api_response['rows']) && is_array($api_response['rows'])) {
-        foreach ($api_response['rows'] as $physician) {
-            if (isset($physician['hospital_affiliations']) && is_array($physician['hospital_affiliations'])) {
-                $all_hospitals = array_merge($all_hospitals, $physician['hospital_affiliations']);
+    $synced = 0;
+    
+    try {
+        // Use the dedicated hospitals API endpoint
+        $hospitals_response = FAD_API_Client::get_hospitals();
+        
+        if (is_wp_error($hospitals_response)) {
+            error_log('Hospitals API Error: ' . $hospitals_response->get_error_message());
+            return 0;
+        }
+        
+        $hospitals_data = [];
+        
+        // Handle different possible response formats
+        if (isset($hospitals_response['data']) && is_array($hospitals_response['data'])) {
+            $hospitals_data = $hospitals_response['data'];
+        } elseif (isset($hospitals_response['rows']) && is_array($hospitals_response['rows'])) {
+            $hospitals_data = $hospitals_response['rows'];
+        } elseif (is_array($hospitals_response)) {
+            // If the response is directly an array of hospitals
+            $hospitals_data = $hospitals_response;
+        }
+        
+        foreach ($hospitals_data as $hospital_item) {
+            $hospital_name = '';
+            
+            // Handle different possible data structures
+            if (is_string($hospital_item)) {
+                $hospital_name = trim($hospital_item);
+            } elseif (is_array($hospital_item)) {
+                // Try common field names
+                $hospital_name = trim($hospital_item['name'] ?? $hospital_item['hospital_name'] ?? $hospital_item['hospital'] ?? '');
+            }
+            
+            if (empty($hospital_name)) {
+                continue;
+            }
+            
+            // Check if hospital already exists (case-insensitive)
+            $existing = $wpdb->get_var($wpdb->prepare(
+                "SELECT hospitalID FROM {$wpdb->prefix}hospitals WHERE LOWER(TRIM(hospital_name)) = %s",
+                strtolower($hospital_name)
+            ));
+            
+            if (!$existing) {
+                $wpdb->insert("{$wpdb->prefix}hospitals", [
+                    'hospital_name' => $hospital_name
+                ]);
+                $synced++;
             }
         }
         
-        return count(array_unique($all_hospitals));
-    } elseif (isset($api_response['data']) && is_array($api_response['data'])) {
-        return count($api_response['data']);
+    } catch (Exception $e) {
+        error_log('Hospitals sync error: ' . $e->getMessage());
     }
     
-    return 0;
+    return $synced;
 }
 
 /**
@@ -1085,19 +1167,20 @@ function fad_validate_database_schema() {
             'biography', 'profile_img_url', 'practice_name', 'prov_status',
             'address', 'city', 'state', 'zip', 'county',
             'is_ab_directory', 'is_bt_directory', 'accept_medi_cal',
-            'accepts_new_patients', 'Insurances', 'hospitalNames',
+            'accepts_new_patients', 'Insurances',
             'aco_active_networks', 'hmo_active_networks', 'ppo_active_network', 
             'slug', 'created_at', 'latitude', 'longitude'
         ],
         'specialties' => ['specialtyID', 'specialty_name'],
-        'languages' => ['languageID', 'language_name'],
-        'zocdoc' => ['zocdocID', 'zocdoc_name'],
+        'languages' => ['languageID', 'language'],
+        'zocdoc' => ['zocdocID', 'book', 'book_url'],
         'hospitals' => ['hospitalID', 'hospital_name'],
         'insurances' => ['insuranceID', 'insurance_name', 'insurance_type'],
-        'doctor_specialties' => ['doctorID', 'specialtyID'],
+        'doctor_specialties' => ['specialtyID', 'doctorID'],
         'doctor_language' => ['doctorID', 'languageID'],
-        'doctor_zocdoc' => ['doctorID', 'zocdocID'],
-        'doctor_insurance' => ['doctorID', 'insuranceID']
+        'doctor_zocdoc' => ['zocdocID', 'doctorID'],
+        'doctor_insurance' => ['doctorID', 'insuranceID'],
+        'doctor_hospital' => ['doctorID', 'hospitalID']
     ];
     
     foreach ($required_schema as $table_name => $required_columns) {
@@ -1619,6 +1702,7 @@ function fad_update_physician_relationships($doctor_id, $physician_data) {
     $wpdb->delete($wpdb->prefix . 'doctor_specialties', ['doctorID' => $doctor_id]);
     $wpdb->delete($wpdb->prefix . 'doctor_language', ['doctorID' => $doctor_id]);
     $wpdb->delete($wpdb->prefix . 'doctor_insurance', ['doctorID' => $doctor_id]);
+    $wpdb->delete($wpdb->prefix . 'doctor_hospital', ['doctorID' => $doctor_id]);
     
     // Handle specialties
     if (!empty($physician_data['specialties']) && is_array($physician_data['specialties'])) {
@@ -1705,6 +1789,33 @@ function fad_update_physician_relationships($doctor_id, $physician_data) {
                         'insuranceID' => $insurance_id
                     ]);
                 }
+            }
+        }
+    }
+    
+    // Handle hospital affiliations
+    if (!empty($physician_data['hospital_affiliations']) && is_array($physician_data['hospital_affiliations'])) {
+        foreach ($physician_data['hospital_affiliations'] as $hospital_name) {
+            $hospital_name = trim($hospital_name);
+            if (!empty($hospital_name)) {
+                // Get or create hospital
+                $hospital_id = $wpdb->get_var($wpdb->prepare(
+                    "SELECT hospitalID FROM {$wpdb->prefix}hospitals WHERE LOWER(TRIM(hospital_name)) = %s",
+                    strtolower(trim($hospital_name))
+                ));
+                
+                if (!$hospital_id) {
+                    $wpdb->insert($wpdb->prefix . 'hospitals', [
+                        'hospital_name' => trim($hospital_name)
+                    ]);
+                    $hospital_id = $wpdb->insert_id;
+                }
+                
+                // Link doctor to hospital
+                $wpdb->insert($wpdb->prefix . 'doctor_hospital', [
+                    'doctorID' => $doctor_id,
+                    'hospitalID' => $hospital_id
+                ]);
             }
         }
     }

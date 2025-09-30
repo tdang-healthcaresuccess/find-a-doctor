@@ -118,6 +118,7 @@ jQuery(document).ready(function($) {
                 if (response.success) {
                     resultDiv.html('<div class="notice notice-success"><p><strong>✓ Database Schema Valid!</strong> ' + response.data.message + '</p></div>');
                 } else {
+                    var hasIssues = false;
                     var errorHtml = '<div class="notice notice-error"><p><strong>✗ Database Schema Issues Found:</strong></p>';
                     
                     if (response.data && response.data.details) {
@@ -125,6 +126,7 @@ jQuery(document).ready(function($) {
                         
                         if (details.missing_tables && details.missing_tables.length > 0) {
                             errorHtml += '<p><strong>Missing Tables:</strong> ' + details.missing_tables.join(', ') + '</p>';
+                            hasIssues = true;
                         }
                         
                         if (details.missing_columns && Object.keys(details.missing_columns).length > 0) {
@@ -133,7 +135,22 @@ jQuery(document).ready(function($) {
                                 errorHtml += '<li><strong>' + table + ':</strong> ' + details.missing_columns[table].join(', ') + '</li>';
                             }
                             errorHtml += '</ul>';
+                            hasIssues = true;
                         }
+                        
+                        if (details.errors && details.errors.length > 0) {
+                            errorHtml += '<p><strong>Errors:</strong></p><ul>';
+                            for (var i = 0; i < details.errors.length; i++) {
+                                errorHtml += '<li>' + details.errors[i] + '</li>';
+                            }
+                            errorHtml += '</ul>';
+                            hasIssues = true;
+                        }
+                    }
+                    
+                    // If no specific issues found, show the general error message
+                    if (!hasIssues) {
+                        errorHtml += '<p>' + (response.data ? response.data.message : 'Unknown validation error occurred.') + '</p>';
                     }
                     
                     errorHtml += '</div>';

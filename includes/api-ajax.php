@@ -16,6 +16,9 @@ add_action('wp_ajax_fad_validate_schema', 'fad_handle_validate_schema');
 // AJAX handler for fixing database schema
 add_action('wp_ajax_fad_fix_schema', 'fad_handle_fix_schema');
 
+// AJAX handler for syncing reference data
+add_action('wp_ajax_fad_sync_reference_data', 'fad_handle_sync_reference_data');
+
 function fad_handle_test_api_connection() {
     // Clean any output that might have been generated
     if (ob_get_level()) {
@@ -121,32 +124,6 @@ function fad_handle_import_from_api() {
 
 // AJAX handler for syncing reference data
 add_action('wp_ajax_fad_sync_reference_data', 'fad_handle_sync_reference_data');
-
-function fad_handle_sync_reference_data() {
-    // Verify nonce
-    if (!wp_verify_nonce($_POST['nonce'], 'fad_api_nonce')) {
-        wp_send_json_error('Invalid nonce');
-        return;
-    }
-    
-    // Check permissions
-    if (!current_user_can('manage_options')) {
-        wp_send_json_error('Insufficient permissions');
-        return;
-    }
-    
-    try {
-        $result = fad_sync_reference_data();
-        
-        if ($result['success']) {
-            wp_send_json_success($result);
-        } else {
-            wp_send_json_error($result['errors']);
-        }
-    } catch (Exception $e) {
-        wp_send_json_error($e->getMessage());
-    }
-}
 
 // AJAX handler for getting individual physician data
 add_action('wp_ajax_fad_get_physician_from_api', 'fad_handle_get_physician_from_api');
@@ -516,6 +493,12 @@ function fad_handle_start_batch_import() {
     }
     
     try {
+        // Sync reference data from dedicated endpoints before starting import
+        error_log('Syncing reference data before import...');
+        $languages_synced = fad_sync_languages();
+        $hospitals_synced = fad_sync_hospitals();
+        error_log("Reference data synced: {$languages_synced} languages, {$hospitals_synced} hospitals");
+        
         // Clear any existing session
         $session_key = 'fad_import_session_' . get_current_user_id();
         delete_transient($session_key);
@@ -599,12 +582,10 @@ function fad_handle_validate_schema() {
     if (!isset($_POST['nonce'])) {
         wp_send_json_error('Missing nonce');
     }
-    
-    if (!wp_verify_nonce($_POST['nonce'], 'fnd_ajax_nonce')) {
+
+    if (!wp_verify_nonce($_POST['nonce'], 'fad_api_nonce')) {
         wp_send_json_error('Invalid nonce');
-    }
-    
-    // Check permissions
+    }    // Check permissions
     if (!current_user_can('manage_options')) {
         wp_send_json_error('Insufficient permissions');
     }
@@ -643,7 +624,7 @@ function fad_handle_fix_schema() {
         wp_send_json_error('Missing nonce');
     }
     
-    if (!wp_verify_nonce($_POST['nonce'], 'fnd_ajax_nonce')) {
+    if (!wp_verify_nonce($_POST['nonce'], 'fad_api_nonce')) {
         wp_send_json_error('Invalid nonce');
     }
     
@@ -669,5 +650,66 @@ function fad_handle_fix_schema() {
         
     } catch (Exception $e) {
         wp_send_json_error('Schema fix failed: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Handle reference data sync from API
+ */
+function fad_handle_sync_reference_data() {
+    // Clean any output that might have been generated
+    if (ob_get_level()) {
+        ob_clean();
+    }
+    
+    // Verify nonce
+    if (!isset($_POST['nonce'])) {
+        wp_send_json_error('Missing nonce');
+    }
+    
+    if (!wp_verify_nonce($_POST['nonce'], 'fad_api_nonce')) {
+        wp_send_json_error('Invalid nonce');
+    }
+    
+    // Check permissions
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Insufficient permissions');
+    }
+    
+    try {
+        $sync_results = fad_sync_reference_data();
+        
+        if ($sync_results['success']) {
+            $message = 'Reference data synced successfully! ';
+            $details = [];
+            if ($sync_results['languages_synced'] > 0) {
+                $details[] = $sync_results['languages_synced'] . ' languages';
+            }
+            if ($sync_results['hospitals_synced'] > 0) {
+                $details[] = $sync_results['hospitals_synced'] . ' hospitals';
+            }
+            if ($sync_results['insurances_synced'] > 0) {
+                $details[] = $sync_results['insurances_synced'] . ' insurances';
+            }
+            
+            if (!empty($details)) {
+                $message .= 'Added: ' . implode(', ', $details);
+            } else {
+                $message .= 'No new data to add.';
+            }
+            
+            wp_send_json_success([
+                'message' => $message,
+                'details' => $sync_results
+            ]);
+        } else {
+            wp_send_json_error([
+                'message' => 'Reference data sync failed',
+                'details' => $sync_results
+            ]);
+        }
+        
+    } catch (Exception $e) {
+        wp_send_json_error('Reference data sync failed: ' . $e->getMessage());
     }
 }

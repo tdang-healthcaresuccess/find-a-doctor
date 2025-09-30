@@ -139,6 +139,7 @@ function fnd_get_physicians_headless($request) {
     foreach ($physicians as &$physician) {
         $physician['languages'] = fad_get_terms_for_doctor('language', $physician['doctorID']);
         $physician['specialties'] = fad_get_terms_for_doctor('specialty', $physician['doctorID']);
+        $physician['hospitals'] = fad_get_doctor_hospitals($physician['doctorID'], $physician['hospitalNames'] ?? '');
     }
     
     return rest_ensure_response([
@@ -169,6 +170,7 @@ function fnd_get_physician_by_slug($request) {
     // Add related data
     $physician['languages'] = fad_get_terms_for_doctor('language', $physician['doctorID']);
     $physician['specialties'] = fad_get_terms_for_doctor('specialty', $physician['doctorID']);
+    $physician['hospitals'] = fad_get_doctor_hospitals($physician['doctorID'], $physician['hospitalNames'] ?? '');
     
     return rest_ensure_response($physician);
 }

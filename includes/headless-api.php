@@ -343,7 +343,7 @@ class FAD_Headless_API {
             'languages' => $physician['languages'] ?? [],
             'networks' => [
                 'insurances' => $physician['Insurances'] ? explode(',', $physician['Insurances']) : [],
-                'hospitals' => $physician['hospitalNames'] ? explode(',', $physician['hospitalNames']) : []
+                'hospitals' => fad_get_doctor_hospitals($physician['doctorID'], $physician['hospitalNames'] ?? '')
             ],
             'metadata' => [
                 'providerKey' => $physician['atlas_primary_key'],

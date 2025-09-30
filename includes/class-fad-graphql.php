@@ -129,7 +129,8 @@ add_action('graphql_register_types', function () {
             'latitude'        => ['type' => 'Float'],
             'longitude'       => ['type' => 'Float'],
             'insurances'      => ['type' => 'String'],
-            'hospitalNames'   => ['type' => 'String'],
+            'hospitalNames'   => ['type' => 'String'], // Deprecated - use hospitals field
+            'hospitals'       => ['type' => ['list_of' => 'String']], // New normalized field
             'mentalHealth'    => ['type' => 'Boolean'],
             'btDirectory'     => ['type' => 'Boolean'],
             'profileImageUrl' => ['type' => 'String'],
@@ -170,6 +171,7 @@ add_action('graphql_register_types', function () {
             'longitude'       => isset($row['longitude']) ? (float)$row['longitude'] : null,
             'insurances'      => $row['insurances'] ?? ($row['Insurances'] ?? ''), 
             'hospitalNames'   => $row['hospitalNames'] ?? ($row['hospital_names'] ?? ''),
+            'hospitals'       => fad_get_doctor_hospitals($doctor_id, $row['hospitalNames'] ?? ($row['hospital_names'] ?? '')),
             'mentalHealth'    => ! empty($row['is_ab_directory']),
             'btDirectory'     => ! empty($row['is_bt_directory']),
             'profileImageUrl' => $row['profile_img_url'] ?? '',

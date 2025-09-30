@@ -6,9 +6,10 @@ function fnd_render_reference_data_page() {
     $tables = [
         'languages' => ['name' => 'Languages', 'key' => 'languageID', 'fields' => ['language' => 'text']],
         'specialties' => ['name' => 'Specialties', 'key' => 'specialtyID', 'fields' => ['specialty_name' => 'text']],
-        // 'insurances' => ['name' => 'Insurances', 'key' => 'insuranceID', 'fields' => ['insuranceName' => 'text']],
-        //  'tags' => ['name' => 'Tags', 'key' => 'tagID', 'fields' => ['tag_name' => 'text']],
-        // 'hospital' => ['name' => 'Hospital', 'key' => 'hospitalID', 'fields' => ['hospitalName' => 'text']],
+        'insurances' => ['name' => 'Insurances', 'key' => 'insuranceID', 'fields' => ['insurance_name' => 'text', 'insurance_type' => 'select']],
+        'hospitals' => ['name' => 'Hospitals', 'key' => 'hospitalID', 'fields' => ['hospital_name' => 'text']],
+        'zocdoc' => ['name' => 'Zocdoc', 'key' => 'zocdocID', 'fields' => ['zocdoc_name' => 'text']],
+        // 'tags' => ['name' => 'Tags', 'key' => 'tagID', 'fields' => ['tag_name' => 'text']],
         // 'aco_active_networks' => ['name' => 'ACO Networks', 'key' => 'acoID', 'fields' => ['acoName' => 'text']],
         // 'ppo_active_network' => ['name' => 'PPO Networks', 'key' => 'ppo_networkID', 'fields' => ['ppo_name' => 'text']],
         // 'hmo_active_networks' => ['name' => 'HMO Networks', 'key' => 'hmoID', 'fields' => ['hmoName' => 'text']],
@@ -122,6 +123,8 @@ function fnd_render_reference_data_page() {
 
     echo "<h2>{$meta['name']}</h2>";
     echo "<button class='button add-modal' data-type='$selected' data-fields='" . esc_attr(json_encode($meta['fields'])) . "' data-key='{$meta['key']}'>+ Add {$meta['name']}</button>";
+    echo "<button class='button button-secondary' id='sync-reference-data' style='margin-left: 10px;'>Sync from API</button>";
+    echo "<div id='sync-result' style='margin-top: 10px;'></div>";
     echo "<table class='wp-list-table widefat striped'><thead><tr><th>ID</th>";
     foreach ($meta['fields'] as $field => $type) echo "<th>" . ucwords(str_replace('_', ' ', $field)) . "</th>";
     echo "<th>Actions</th></tr></thead><tbody>";
@@ -220,6 +223,14 @@ jQuery(function($){
             let labelText = field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
             if (type === 'checkbox') {
                 fieldHtml = '<p><label><input type="checkbox" name="'+field+'" '+(value==1?'checked':'')+'> '+labelText+'</label></p>';
+            } else if (type === 'select' && field === 'insurance_type') {
+                fieldHtml = '<p><label>'+labelText+':</label><br><select name="'+field+'" class="regular-text">' +
+                           '<option value="hmo"'+(value=='hmo'?' selected':'')+'>HMO</option>' +
+                           '<option value="ppo"'+(value=='ppo'?' selected':'')+'>PPO</option>' +
+                           '<option value="acn"'+(value=='acn'?' selected':'')+'>ACN</option>' +
+                           '<option value="aco"'+(value=='aco'?' selected':'')+'>ACO</option>' +
+                           '<option value="plan_link"'+(value=='plan_link'?' selected':'')+'>Plan Link</option>' +
+                           '</select></p>';
             } else {
                 fieldHtml = '<p><label>'+labelText+':</label><br><input type="text" name="'+field+'" value="'+value+'" class="regular-text"></p>';
             }
@@ -261,6 +272,47 @@ jQuery(function($){
             alert('Please fill all required fields.');
             $(firstEmpty).focus();
         }
+    });
+    
+    // Sync reference data from API
+    $('#sync-reference-data').on('click', function(e) {
+        e.preventDefault();
+        
+        var button = $(this);
+        var resultDiv = $('#sync-result');
+        
+        if (!confirm('This will sync reference data from the API. This may take a moment. Continue?')) {
+            return;
+        }
+        
+        button.prop('disabled', true).text('Syncing...');
+        resultDiv.html('<div class="spinner is-active" style="float: none; margin: 10px 0;"></div>');
+        
+        $.ajax({
+            url: ajaxurl,
+            type: 'POST',
+            data: {
+                action: 'fad_sync_reference_data',
+                nonce: '<?php echo wp_create_nonce('fnd_ajax_nonce'); ?>'
+            },
+            success: function(response) {
+                button.prop('disabled', false).text('Sync from API');
+                
+                if (response.success) {
+                    resultDiv.html('<div class="notice notice-success"><p><strong>✓ Success!</strong> ' + response.data.message + '</p></div>');
+                    // Refresh the page after 2 seconds to show new data
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    resultDiv.html('<div class="notice notice-error"><p><strong>✗ Error:</strong> ' + (response.data ? response.data.message : 'Sync failed') + '</p></div>');
+                }
+            },
+            error: function(xhr, status, error) {
+                button.prop('disabled', false).text('Sync from API');
+                resultDiv.html('<div class="notice notice-error"><p><strong>Error:</strong> Failed to sync reference data. Check browser console for details.</p></div>');
+            }
+        });
     });
 });
 

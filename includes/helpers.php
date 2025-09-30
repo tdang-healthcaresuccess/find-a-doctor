@@ -77,6 +77,35 @@ function fad_get_terms_for_doctor($type, $doctor_id) {
 }
 
 /**
+ * Get hospitals for a doctor from normalized tables
+ * Falls back to hospitalNames field if no normalized data exists
+ *
+ * @param int $doctor_id Doctor ID
+ * @param string $hospital_names_fallback hospitalNames field value for fallback
+ * @return array Array of hospital names
+ */
+function fad_get_doctor_hospitals($doctor_id, $hospital_names_fallback = '') {
+    global $wpdb;
+    
+    // Try to get from normalized tables first
+    $hospitals = $wpdb->get_col($wpdb->prepare("
+        SELECT h.hospital_name 
+        FROM {$wpdb->prefix}hospitals h
+        INNER JOIN {$wpdb->prefix}doctor_hospital dh ON h.hospitalID = dh.hospitalID
+        WHERE dh.doctorID = %d
+        ORDER BY h.hospital_name
+    ", $doctor_id));
+    
+    // If no normalized data, fall back to hospitalNames field
+    if (empty($hospitals) && !empty($hospital_names_fallback)) {
+        $hospitals = array_map('trim', explode(',', $hospital_names_fallback));
+        $hospitals = array_filter($hospitals); // Remove empty values
+    }
+    
+    return $hospitals;
+}
+
+/**
  * Format geolocation coordinates for display
  *
  * @param float|null $latitude
