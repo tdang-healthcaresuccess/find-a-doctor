@@ -1220,6 +1220,8 @@ function fad_validate_database_schema() {
         
         // Check for missing columns
         $missing_columns = array_diff($required_columns, $existing_column_names);
+        // Convert to indexed array to ensure clean JSON output
+        $missing_columns = array_values($missing_columns);
         
         $results['tables'][$table_name] = [
             'exists' => true,

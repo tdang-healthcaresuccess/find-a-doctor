@@ -113,16 +113,19 @@ jQuery(document).ready(function($) {
                 nonce: fad_ajax_object.nonce
             },
             success: function(response) {
+                console.log('Schema validation response:', response);
                 button.prop('disabled', false).text('Check Database Schema');
                 
                 if (response.success) {
                     resultDiv.html('<div class="notice notice-success"><p><strong>✓ Database Schema Valid!</strong> ' + response.data.message + '</p></div>');
                 } else {
+                    console.log('Schema validation details:', response.data);
                     var hasIssues = false;
                     var errorHtml = '<div class="notice notice-error"><p><strong>✗ Database Schema Issues Found:</strong></p>';
                     
                     if (response.data && response.data.details) {
                         var details = response.data.details;
+                        console.log('Validation details object:', details);
                         
                         if (details.missing_tables && details.missing_tables.length > 0) {
                             errorHtml += '<p><strong>Missing Tables:</strong> ' + details.missing_tables.join(', ') + '</p>';
@@ -130,9 +133,19 @@ jQuery(document).ready(function($) {
                         }
                         
                         if (details.missing_columns && Object.keys(details.missing_columns).length > 0) {
+                            console.log('Missing columns object:', details.missing_columns);
                             errorHtml += '<p><strong>Missing Columns:</strong></p><ul>';
                             for (var table in details.missing_columns) {
-                                errorHtml += '<li><strong>' + table + ':</strong> ' + details.missing_columns[table].join(', ') + '</li>';
+                                var columns = details.missing_columns[table];
+                                console.log('Table:', table, 'Columns:', columns, 'Type:', typeof columns, 'Is Array:', Array.isArray(columns));
+                                // Ensure columns is an array before using join
+                                if (Array.isArray(columns)) {
+                                    errorHtml += '<li><strong>' + table + ':</strong> ' + columns.join(', ') + '</li>';
+                                } else if (typeof columns === 'string') {
+                                    errorHtml += '<li><strong>' + table + ':</strong> ' + columns + '</li>';
+                                } else {
+                                    errorHtml += '<li><strong>' + table + ':</strong> ' + JSON.stringify(columns) + '</li>';
+                                }
                             }
                             errorHtml += '</ul>';
                             hasIssues = true;
