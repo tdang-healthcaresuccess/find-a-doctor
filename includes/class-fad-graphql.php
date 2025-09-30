@@ -128,6 +128,8 @@ add_action('graphql_register_types', function () {
             'county'          => ['type' => 'String'],
             'latitude'        => ['type' => 'Float'],
             'longitude'       => ['type' => 'Float'],
+            'accepts_new_patients' => ['type' => 'Boolean'],
+            'accept_medi_cal' => ['type' => 'Boolean'],
             'insurances'      => ['type' => 'String'],
             'hospitalNames'   => ['type' => 'String'], // Deprecated - use hospitals field
             'hospitals'       => ['type' => ['list_of' => 'String']], // New normalized field
@@ -169,6 +171,8 @@ add_action('graphql_register_types', function () {
             'county'          => $row['county'] ?? '',
             'latitude'        => isset($row['latitude']) ? (float)$row['latitude'] : null,
             'longitude'       => isset($row['longitude']) ? (float)$row['longitude'] : null,
+            'accepts_new_patients' => ! empty($row['accepts_new_patients']),
+            'accept_medi_cal' => ! empty($row['accept_medi_cal']),
             'insurances'      => $row['insurances'] ?? ($row['Insurances'] ?? ''), 
             'hospitalNames'   => $row['hospitalNames'] ?? ($row['hospital_names'] ?? ''),
             'hospitals'       => fad_get_doctor_hospitals($doctor_id, $row['hospitalNames'] ?? ($row['hospital_names'] ?? '')),

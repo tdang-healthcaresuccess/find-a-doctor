@@ -347,7 +347,9 @@ class FAD_Headless_API {
                 'idme' => $physician['idme'],
                 'provStatus' => $physician['prov_status'],
                 'isAbDirectory' => (bool)$physician['is_ab_directory'],
-                'isBtDirectory' => (bool)$physician['is_bt_directory']
+                'isBtDirectory' => (bool)$physician['is_bt_directory'],
+                'acceptsNewPatients' => (bool)$physician['accepts_new_patients'],
+                'acceptMediCal' => (bool)$physician['accept_medi_cal']
             ]
         ];
         
