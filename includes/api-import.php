@@ -1871,11 +1871,18 @@ function fad_update_physician_relationships($doctor_id, $physician_data) {
                         $insurance_id = $wpdb->insert_id;
                     }
                     
-                    // Link doctor to insurance
-                    $wpdb->insert($wpdb->prefix . 'doctor_insurance', [
-                        'doctorID' => $doctor_id,
-                        'insuranceID' => $insurance_id
-                    ]);
+                    // Link doctor to insurance (avoid duplicates)
+                    $existing = $wpdb->get_var($wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$wpdb->prefix}doctor_insurance WHERE doctorID = %d AND insuranceID = %d",
+                        $doctor_id, $insurance_id
+                    ));
+                    
+                    if (!$existing) {
+                        $wpdb->insert($wpdb->prefix . 'doctor_insurance', [
+                            'doctorID' => $doctor_id,
+                            'insuranceID' => $insurance_id
+                        ]);
+                    }
                 }
             }
         }

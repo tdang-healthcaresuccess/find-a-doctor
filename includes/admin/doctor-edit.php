@@ -133,6 +133,26 @@ function fnd_render_doctor_edit_page() {
         return;
     }
 
+    // Retrieve insurance data from relationship tables
+    $insurance_results = $wpdb->get_results($wpdb->prepare("
+        SELECT i.insurance_name, i.insurance_type 
+        FROM {$wpdb->prefix}doctor_insurance di 
+        JOIN {$wpdb->prefix}insurances i ON di.insuranceID = i.insuranceID 
+        WHERE di.doctorID = %d
+        ORDER BY i.insurance_name
+    ", $doctor_id));
+    
+    $insurance_list = [];
+    foreach ($insurance_results as $ins) {
+        $insurance_list[] = $ins->insurance_name . ' (' . strtoupper($ins->insurance_type) . ')';
+    }
+    $doctor_insurances = implode(', ', $insurance_list);
+    
+    // If no relationship data exists, fall back to the legacy Insurances field
+    if (empty($doctor_insurances) && !empty($doctor->Insurances)) {
+        $doctor_insurances = $doctor->Insurances;
+    }
+
     $ab_current     = is_null($doctor->is_ab_directory) ? '' : (string)(int)$doctor->is_ab_directory; 
     $bt_current     = is_null($doctor->is_bt_directory) ? '' : (string)(int)$doctor->is_bt_directory; 
     $accepts_new_patients_current = is_null($doctor->accepts_new_patients) ? '' : (string)(int)$doctor->accepts_new_patients;
@@ -298,7 +318,7 @@ function fnd_render_doctor_edit_page() {
                 </div>
                 <div class="fnd-field">
                     <label for="Insurances">Insurances</label>
-                    <textarea id="Insurances" name="Insurances" rows="3" class="large-text"><?php echo esc_textarea($doctor->Insurances); ?></textarea>
+                    <textarea id="Insurances" name="Insurances" rows="3" class="large-text"><?php echo esc_textarea($doctor_insurances); ?></textarea>
                 </div>
                 <div class="fnd-field">
                     <label for="hospitalNames">Hospital Names</label>
