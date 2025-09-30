@@ -194,7 +194,12 @@ function fnd_handle_doctor_upload($file) {
             } else {
                 $value = trim($data[$index] ?? '');
                 if (in_array($column, $boolean_fields)) {
-                    $doctor_data[$column] = (strtolower($value) === 'yes') ? 1 : 0;
+                    // Special handling for BT Directory - always default to Yes (1)
+                    if ($column === 'is_bt_directory') {
+                        $doctor_data[$column] = 1;
+                    } else {
+                        $doctor_data[$column] = (strtolower($value) === 'yes') ? 1 : 0;
+                    }
                 } else {
                     $doctor_data[$column] = $value;
                 }

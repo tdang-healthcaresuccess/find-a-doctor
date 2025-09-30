@@ -27,9 +27,13 @@ function fnd_render_doctor_edit_page() {
 
         $ab_raw = isset($_POST['is_ab_directory']) ? $_POST['is_ab_directory'] : '';
         $bt_raw = isset($_POST['is_bt_directory']) ? $_POST['is_bt_directory'] : '';
+        $accepts_new_raw = isset($_POST['accepts_new_patients']) ? $_POST['accepts_new_patients'] : '';
+        $accept_medi_cal_raw = isset($_POST['accept_medi_cal']) ? $_POST['accept_medi_cal'] : '';
 
         $is_ab_directory = ($ab_raw === '1') ? 1 : (($ab_raw === '0') ? 0 : null);
         $is_bt_directory = ($bt_raw === '1') ? 1 : (($bt_raw === '0') ? 0 : null);
+        $accepts_new_patients = ($accepts_new_raw === '1') ? 1 : (($accepts_new_raw === '0') ? 0 : null);
+        $accept_medi_cal = ($accept_medi_cal_raw === '1') ? 1 : (($accept_medi_cal_raw === '0') ? 0 : null);
 
         $t  = fn($k) => isset($_POST[$k]) ? sanitize_text_field( wp_unslash($_POST[$k]) ) : '';
         $ta = fn($k) => isset($_POST[$k]) ? sanitize_textarea_field( wp_unslash($_POST[$k]) ) : '';
@@ -53,6 +57,8 @@ function fnd_render_doctor_edit_page() {
         'county'              => $t('county'),
         'is_ab_directory'     => $t('is_ab_directory'),
         'is_bt_directory'     => $t('is_bt_directory'),
+        'accepts_new_patients'=> $accepts_new_patients,
+        'accept_medi_cal'     => $accept_medi_cal,
         'aco_active_networks' => $t('aco_active_networks'),
         'ppo_active_network'  => $t('ppo_active_network'),
 
@@ -129,6 +135,8 @@ function fnd_render_doctor_edit_page() {
 
     $ab_current     = is_null($doctor->is_ab_directory) ? '' : (string)(int)$doctor->is_ab_directory; 
     $bt_current     = is_null($doctor->is_bt_directory) ? '' : (string)(int)$doctor->is_bt_directory; 
+    $accepts_new_patients_current = is_null($doctor->accepts_new_patients) ? '' : (string)(int)$doctor->accepts_new_patients;
+    $accept_medi_cal_current = is_null($doctor->accept_medi_cal) ? '' : (string)(int)$doctor->accept_medi_cal; 
 
     ?>
     <div class="wrap">
@@ -235,6 +243,25 @@ function fnd_render_doctor_edit_page() {
                         <option value="0" <?php selected($bt_current, '0'); ?>>No</option>
                     </select>
                 </div>
+
+                <div class="fnd-field">
+                    <label for="accepts_new_patients">Accepts New Patients</label>
+                    <select id="accepts_new_patients" name="accepts_new_patients" class="regular-text">
+                        <option value=""  <?php selected($accepts_new_patients_current, '');  ?>>Select</option>
+                        <option value="1" <?php selected($accepts_new_patients_current, '1'); ?>>Yes</option>
+                        <option value="0" <?php selected($accepts_new_patients_current, '0'); ?>>No</option>
+                    </select>
+                </div>
+
+                <div class="fnd-field">
+                    <label for="accept_medi_cal">Accept Medi-Cal</label>
+                    <select id="accept_medi_cal" name="accept_medi_cal" class="regular-text">
+                        <option value=""  <?php selected($accept_medi_cal_current, '');  ?>>Select</option>
+                        <option value="1" <?php selected($accept_medi_cal_current, '1'); ?>>Yes</option>
+                        <option value="0" <?php selected($accept_medi_cal_current, '0'); ?>>No</option>
+                    </select>
+                </div>
+
                 <div class="fnd-field">
                     <label for="aco_active_networks">ACO Networks List</label>
                     <input id="aco_active_networks" name="aco_active_networks" type="text" class="regular-text"
