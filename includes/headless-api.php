@@ -21,9 +21,6 @@ class FAD_Headless_API {
         // Add CORS headers for frontend consumption
         add_action('rest_api_init', [__CLASS__, 'add_cors_headers']);
         
-        // Add custom fields to REST API
-        add_action('rest_api_init', [__CLASS__, 'add_physician_rest_fields']);
-        
         // Enable GraphQL if available
         if (function_exists('register_graphql_object_type')) {
             add_action('graphql_register_types', [__CLASS__, 'register_graphql_types']);
@@ -366,5 +363,5 @@ class FAD_Headless_API {
     }
 }
 
-// Initialize headless API
-FAD_Headless_API::init();
+// Don't auto-initialize - let the main plugin file control this
+// FAD_Headless_API::init();

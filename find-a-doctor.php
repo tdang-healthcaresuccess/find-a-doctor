@@ -40,6 +40,9 @@ if (!$is_headless) {
     // Only initialize URL rewriting for traditional WordPress
     FAD_URL_Rewrite::init();
 } else {
+    // In headless mode, initialize headless API features
+    FAD_Headless_API::init();
+    
     // In headless mode, ensure REST API endpoints are properly exposed
     add_action('rest_api_init', function() {
         // Add CORS headers for headless consumption
