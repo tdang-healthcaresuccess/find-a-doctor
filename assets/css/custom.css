@@ -47,6 +47,116 @@
     100% { transform: rotate(360deg); }
 }
 
+/* API Import Page Styles */
+.card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+    margin: 20px 0;
+    padding: 20px;
+}
+
+.card h2 {
+    margin-top: 0;
+}
+
+#import-progress .spinner {
+    float: none;
+    margin: 0 10px 0 0;
+}
+
+.widefat th,
+.widefat td {
+    padding: 10px;
+}
+
+.form-table th {
+    width: 200px;
+}
+
+.form-table input[type="text"],
+.form-table input[type="number"] {
+    width: 300px;
+}
+
+.badge {
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.badge-success {
+    background-color: #46b450;
+    color: white;
+}
+
+.badge-warning {
+    background-color: #ffb900;
+    color: white;
+}
+
+.badge-error {
+    background-color: #dc3232;
+    color: white;
+}
+
+#dry-run-mode {
+    margin-right: 8px;
+}
+
+.preview-table {
+    margin-top: 15px;
+}
+
+.preview-table th,
+.preview-table td {
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.preview-table tbody tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+/* Doctor List Page Styles */
+.preview-btn {
+    background: #0073aa !important;
+    border-color: #0073aa !important;
+    color: white !important;
+    text-decoration: none !important;
+}
+
+.preview-btn:hover {
+    background: #005a87 !important;
+    border-color: #005a87 !important;
+    color: white !important;
+}
+
+.preview-btn:focus {
+    box-shadow: 0 0 0 1px #fff, 0 0 0 3px #0073aa !important;
+}
+
+.button-disabled {
+    pointer-events: none !important;
+}
+
+.current-page {
+    background: #0073aa !important;
+    border-color: #0073aa !important;
+    color: white !important;
+}
+
+/* Action buttons spacing */
+.wp-list-table .button {
+    margin-right: 3px;
+}
+
+.wp-list-table .button:last-child {
+    margin-right: 0;
+}
+
     /* edit  doctor page css start here */
     .fnd-grid {
         display: grid;

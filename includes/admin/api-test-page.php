@@ -91,21 +91,5 @@ function fnd_render_api_test_page() {
         });
     });
     </script>
-    
-    <style>
-    .card {
-        background: #fff;
-        border: 1px solid #ccd0d4;
-        box-shadow: 0 1px 1px rgba(0,0,0,.04);
-        margin: 20px 0;
-        padding: 20px;
-    }
-    .card h2 {
-        margin-top: 0;
-    }
-    .widefat th, .widefat td {
-        padding: 10px;
-    }
-    </style>
     <?php
 }

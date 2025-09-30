@@ -3,7 +3,102 @@ if ( ! defined('ABSPATH') ) { exit; }
 
 add_action('graphql_register_types', function () {
 
-    // --- Doctor type ---
+        // --- Physician List Query with Filters ---
+    register_graphql_field('RootQuery', 'physicians', [
+        'type' => ['list_of' => 'Doctor'],
+        'description' => __('Fetch physicians with filtering and pagination','fad-graphql'),
+        'args' => [
+            'first' => ['type' => 'Int', 'default' => 20],
+            'after' => ['type' => 'String'],
+            'search' => ['type' => 'String'],
+            'specialty' => ['type' => 'String'],
+            'location' => ['type' => 'String']
+        ],
+        'resolve' => function ($root, $args) use ($map_row) {
+            global $wpdb;
+            
+            $limit = min($args['first'] ?? 20, 100);
+            $offset = 0;
+            
+            // Handle cursor-based pagination
+            if (!empty($args['after'])) {
+                $offset = (int)base64_decode($args['after']);
+            }
+            
+            // Build query conditions
+            $where_conditions = [];
+            $where_values = [];
+            
+            if (!empty($args['search'])) {
+                $where_conditions[] = "(first_name LIKE %s OR last_name LIKE %s OR CONCAT(first_name, ' ', last_name) LIKE %s)";
+                $search_term = '%' . $args['search'] . '%';
+                $where_values[] = $search_term;
+                $where_values[] = $search_term;
+                $where_values[] = $search_term;
+            }
+            
+            if (!empty($args['location'])) {
+                $where_conditions[] = "(city LIKE %s OR state LIKE %s)";
+                $location_term = '%' . $args['location'] . '%';
+                $where_values[] = $location_term;
+                $where_values[] = $location_term;
+            }
+            
+            $where_clause = '';
+            if (!empty($where_conditions)) {
+                $where_clause = 'WHERE ' . implode(' AND ', $where_conditions);
+            }
+            
+            // Handle specialty filter
+            $join_clause = '';
+            if (!empty($args['specialty'])) {
+                $join_clause = "
+                    INNER JOIN {$wpdb->prefix}doctor_specialties ds ON d.doctorID = ds.doctorID
+                    INNER JOIN {$wpdb->prefix}specialties s ON ds.specialtyID = s.specialtyID
+                ";
+                if ($where_clause) {
+                    $where_clause .= " AND s.specialty_name LIKE %s";
+                } else {
+                    $where_clause = "WHERE s.specialty_name LIKE %s";
+                }
+                $where_values[] = '%' . $args['specialty'] . '%';
+            }
+            
+            $query = "
+                SELECT DISTINCT d.* 
+                FROM {$wpdb->prefix}doctors d 
+                {$join_clause} 
+                {$where_clause} 
+                ORDER BY d.last_name, d.first_name 
+                LIMIT %d OFFSET %d
+            ";
+            
+            $query_values = array_merge($where_values, [$limit, $offset]);
+            $rows = $wpdb->get_results($wpdb->prepare($query, $query_values), ARRAY_A);
+            
+            return array_map($map_row, $rows ?: []);
+        },
+    ]);
+    
+    // --- Specialties Query ---
+    register_graphql_field('RootQuery', 'specialties', [
+        'type' => ['list_of' => 'String'],
+        'description' => __('Get all available specialties','fad-graphql'),
+        'resolve' => function ($root, $args) {
+            global $wpdb;
+            return $wpdb->get_col("SELECT DISTINCT specialty_name FROM {$wpdb->prefix}specialties ORDER BY specialty_name");
+        },
+    ]);
+    
+    // --- Languages Query ---
+    register_graphql_field('RootQuery', 'languages', [
+        'type' => ['list_of' => 'String'],
+        'description' => __('Get all available languages','fad-graphql'),
+        'resolve' => function ($root, $args) {
+            global $wpdb;
+            return $wpdb->get_col("SELECT DISTINCT language FROM {$wpdb->prefix}languages ORDER BY language");
+        },
+    ]);
     register_graphql_object_type('Doctor', [
         'description' => __('Doctor profile row from custom tables','fad-graphql'),
         'fields'      => [

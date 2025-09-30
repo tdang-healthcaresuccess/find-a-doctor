@@ -11,7 +11,17 @@ require_once plugin_dir_path(__FILE__) . 'api-import.php';
 add_action('wp_ajax_fad_test_api_connection', 'fad_handle_test_api_connection');
 
 function fad_handle_test_api_connection() {
+    // Clean any output that might have been generated
+    if (ob_get_level()) {
+        ob_clean();
+    }
+    
     // Verify nonce
+    if (!isset($_POST['nonce'])) {
+        wp_send_json_error('No nonce provided');
+        return;
+    }
+    
     if (!wp_verify_nonce($_POST['nonce'], 'fad_api_nonce')) {
         wp_send_json_error('Invalid nonce');
         return;
@@ -39,10 +49,19 @@ function fad_handle_test_api_connection() {
             
             wp_send_json_error($error_message);
         } else {
-            wp_send_json_success('Connection successful');
+            // Success - format the response nicely
+            $message = 'Connection successful! ';
+            if (is_array($result) && isset($result['rows'])) {
+                $count = count($result['rows']);
+                $message .= "Retrieved {$count} sample physicians from API.";
+            } else {
+                $message .= 'API responded correctly.';
+            }
+            
+            wp_send_json_success($message);
         }
     } catch (Exception $e) {
-        wp_send_json_error($e->getMessage());
+        wp_send_json_error('Exception: ' . $e->getMessage());
     }
 }
 
@@ -63,15 +82,23 @@ function fad_handle_import_from_api() {
     }
     
     try {
-        // Get search parameters
-        $search_params = $_POST['search_params'] ?? [];
-        $dry_run = isset($_POST['dry_run']) && $_POST['dry_run'] === 'true';
-        $import_all_pages = isset($_POST['import_all_pages']) && $_POST['import_all_pages'] === 'true';
+        // Get search parameters from form fields
+        $search_params = [];
         
-        // Clean up empty parameters
-        $search_params = array_filter($search_params, function($value) {
-            return !empty(trim($value));
-        });
+        if (!empty($_POST['specialty'])) {
+            $search_params['specialty'] = sanitize_text_field($_POST['specialty']);
+        }
+        
+        if (!empty($_POST['location'])) {
+            $search_params['location'] = sanitize_text_field($_POST['location']);
+        }
+        
+        if (!empty($_POST['limit'])) {
+            $search_params['limit'] = (int)$_POST['limit'];
+        }
+        
+        $dry_run = isset($_POST['dry_run']) && $_POST['dry_run'] === '1';
+        $import_all_pages = isset($_POST['import_all_pages']) && $_POST['import_all_pages'] === '1';
         
         // Import doctors from API
         $result = fad_import_doctors_from_api($search_params, $dry_run, $import_all_pages);

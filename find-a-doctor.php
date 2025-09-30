@@ -22,6 +22,17 @@ require_once plugin_dir_path(__FILE__) . 'includes/admin/manage-reference-data.p
 require_once plugin_dir_path(__FILE__) . 'includes/admin/api-import.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin/api-test-page.php';
 require_once plugin_dir_path(__FILE__) . 'includes/url-rewrite.php';
+require_once plugin_dir_path(__FILE__) . 'includes/headless-api.php';
+
+// Check if we're in headless mode (Faust.js or similar)
+$is_headless = defined('HEADLESS_MODE_CLIENT_URL') || 
+               isset($_SERVER['HTTP_X_FAUST_SECRET']) ||
+               (function_exists('is_faust') && is_faust());
+
+if (!$is_headless) {
+    // Only initialize URL rewriting for traditional WordPress
+    FAD_URL_Rewrite::init();
+}
 
 // Include debug helper in development
 if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -79,8 +90,20 @@ function fnd_enqueue_admin_assets($hook) {
 
     $plugin_url = plugin_dir_url(__FILE__);
 
-    wp_enqueue_style('fnd-custom-style', $plugin_url . 'assets/css/custom.css', [], '1.0.0');
-    wp_enqueue_script('fnd-custom-script', $plugin_url . 'assets/js/custom.js', ['jquery'], '1.0.0', true);
+    wp_enqueue_style('fnd-custom-style', $plugin_url . 'assets/css/custom.css', [], '1.0.1');
+    wp_enqueue_script('fnd-custom-script', $plugin_url . 'assets/js/custom.js', ['jquery'], '1.0.1', true);
+    
+    // Localize script for AJAX
+    wp_localize_script('fnd-custom-script', 'fad_ajax_object', [
+        'ajaxurl' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('fad_api_nonce')
+    ]);
+    
+    // Also ensure ajaxurl is available globally for backward compatibility
+    wp_add_inline_script('fnd-custom-script', 
+        'var ajaxurl = "' . admin_url('admin-ajax.php') . '";',
+        'before'
+    );
 }
 
 add_action('wp_ajax_fnd_handle_doctor_upload', 'fnd_handle_doctor_upload_ajax');
