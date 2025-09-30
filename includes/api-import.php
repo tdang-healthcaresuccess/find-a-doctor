@@ -1311,7 +1311,12 @@ function fad_fix_database_schema() {
         require_once plugin_dir_path(__FILE__) . 'create-tables.php';
         
         // Call the table creation function
-        fad_create_tables();
+        if (function_exists('fnd_create_tables')) {
+            fnd_create_tables();
+            $results['tables_created'][] = 'All missing tables created via fnd_create_tables()';
+        } else {
+            $results['errors'][] = 'Table creation function fnd_create_tables() not found';
+        }
         
         $message_parts = [];
         if (!empty($results['columns_removed'])) {

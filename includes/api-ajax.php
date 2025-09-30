@@ -634,7 +634,9 @@ function fad_handle_fix_schema() {
     }
     
     try {
+        error_log('Starting database schema fix...');
         $fix_results = fad_fix_database_schema();
+        error_log('Schema fix results: ' . json_encode($fix_results));
         
         if ($fix_results['success']) {
             wp_send_json_success([
@@ -649,7 +651,11 @@ function fad_handle_fix_schema() {
         }
         
     } catch (Exception $e) {
+        error_log('Schema fix exception: ' . $e->getMessage());
         wp_send_json_error('Schema fix failed: ' . $e->getMessage());
+    } catch (Error $e) {
+        error_log('Schema fix fatal error: ' . $e->getMessage());
+        wp_send_json_error('Schema fix failed with fatal error: ' . $e->getMessage());
     }
 }
 

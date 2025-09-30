@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Find a Doctor
  * Description: Clean structured plugin with DB schema, import, and REST API.
- * Version: 2.1
+ * Version: 2.3
  * Author: Healthcare Success
  * Author URI: https://healthcaresuccess.com
  */
