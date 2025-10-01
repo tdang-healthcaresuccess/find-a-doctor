@@ -99,6 +99,27 @@ add_action('graphql_register_types', function () {
             return $wpdb->get_col("SELECT DISTINCT language FROM {$wpdb->prefix}languages ORDER BY language");
         },
     ]);
+
+    // --- Hospitals Query ---
+    register_graphql_field('RootQuery', 'hospitals', [
+        'type' => ['list_of' => 'String'],
+        'description' => __('Get all available hospitals','fad-graphql'),
+        'resolve' => function ($root, $args) {
+            global $wpdb;
+            return $wpdb->get_col("SELECT DISTINCT hospital_name FROM {$wpdb->prefix}hospitals ORDER BY hospital_name");
+        },
+    ]);
+
+    // --- Insurances Query ---
+    register_graphql_field('RootQuery', 'insurances', [
+        'type' => ['list_of' => 'String'],
+        'description' => __('Get all available insurance providers','fad-graphql'),
+        'resolve' => function ($root, $args) {
+            global $wpdb;
+            // Get unique insurance names from the normalized insurance table
+            return $wpdb->get_col("SELECT DISTINCT insurance_name FROM {$wpdb->prefix}insurances ORDER BY insurance_name");
+        },
+    ]);
     register_graphql_object_type('Doctor', [
         'description' => __('Doctor profile row from custom tables','fad-graphql'),
         'fields'      => [

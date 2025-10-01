@@ -91,6 +91,20 @@ class FAD_Headless_API {
             'permission_callback' => '__return_true'
         ]);
         
+        // Get all hospitals for filters
+        register_rest_route('fad/v1', '/hospitals', [
+            'methods' => 'GET',
+            'callback' => [__CLASS__, 'get_hospitals'],
+            'permission_callback' => '__return_true'
+        ]);
+        
+        // Get all insurances for filters
+        register_rest_route('fad/v1', '/insurances', [
+            'methods' => 'GET',
+            'callback' => [__CLASS__, 'get_insurances'],
+            'permission_callback' => '__return_true'
+        ]);
+        
         // Generate sitemap data for physicians
         register_rest_route('fad/v1', '/sitemap', [
             'methods' => 'GET',
@@ -274,6 +288,42 @@ class FAD_Headless_API {
         );
         
         return $languages;
+    }
+    
+    /**
+     * Get all hospitals
+     */
+    public static function get_hospitals($request) {
+        global $wpdb;
+        
+        $hospitals = $wpdb->get_results(
+            "SELECT h.hospital_name as name, COUNT(dh.doctorID) as count 
+             FROM {$wpdb->prefix}hospitals h 
+             LEFT JOIN {$wpdb->prefix}doctor_hospital dh ON h.hospitalID = dh.hospitalID 
+             GROUP BY h.hospitalID 
+             ORDER BY h.hospital_name",
+            ARRAY_A
+        );
+        
+        return $hospitals;
+    }
+    
+    /**
+     * Get all insurances
+     */
+    public static function get_insurances($request) {
+        global $wpdb;
+        
+        $insurances = $wpdb->get_results(
+            "SELECT i.insurance_name as name, i.insurance_type as type, COUNT(di.doctorID) as count 
+             FROM {$wpdb->prefix}insurances i 
+             LEFT JOIN {$wpdb->prefix}doctor_insurance di ON i.insuranceID = di.insuranceID 
+             GROUP BY i.insuranceID 
+             ORDER BY i.insurance_name",
+            ARRAY_A
+        );
+        
+        return $insurances;
     }
     
     /**

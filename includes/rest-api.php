@@ -86,16 +86,47 @@ add_action('rest_api_init', function () {
         'callback' => 'fnd_api_get_languages',
         'permission_callback' => '__return_true'
     ]);
-    
+
     register_rest_route('finddoctor/v1', '/api/hospitals', [
         'methods' => 'GET',
         'callback' => 'fnd_api_get_hospitals',
         'permission_callback' => '__return_true'
     ]);
-    
+
     register_rest_route('finddoctor/v1', '/api/insurance', [
         'methods' => 'GET',
         'callback' => 'fnd_api_get_insurance',
+        'permission_callback' => '__return_true'
+    ]);
+    
+    register_rest_route('finddoctor/v1', '/api/specialties', [
+        'methods' => 'GET',
+        'callback' => 'fnd_api_get_specialties',
+        'permission_callback' => '__return_true'
+    ]);
+    
+    // Local database reference data endpoints
+    register_rest_route('finddoctor/v1', '/local/specialties', [
+        'methods' => 'GET',
+        'callback' => 'fnd_get_local_specialties',
+        'permission_callback' => '__return_true'
+    ]);
+    
+    register_rest_route('finddoctor/v1', '/local/languages', [
+        'methods' => 'GET',
+        'callback' => 'fnd_get_local_languages',
+        'permission_callback' => '__return_true'
+    ]);
+    
+    register_rest_route('finddoctor/v1', '/local/hospitals', [
+        'methods' => 'GET',
+        'callback' => 'fnd_get_local_hospitals',
+        'permission_callback' => '__return_true'
+    ]);
+    
+    register_rest_route('finddoctor/v1', '/local/insurances', [
+        'methods' => 'GET',
+        'callback' => 'fnd_get_local_insurances',
         'permission_callback' => '__return_true'
     ]);
 });
@@ -259,4 +290,79 @@ function fnd_api_get_insurance() {
     }
     
     return rest_ensure_response($result);
+}
+
+function fnd_api_get_specialties() {
+    $result = FAD_API_Client::get_specialties();
+    
+    if (is_wp_error($result)) {
+        return new WP_Error(
+            'api_error',
+            $result->get_error_message(),
+            ['status' => 500]
+        );
+    }
+    
+    return rest_ensure_response($result);
+}
+
+// Local database reference data functions
+function fnd_get_local_specialties() {
+    global $wpdb;
+    
+    $specialties = $wpdb->get_results(
+        "SELECT s.specialty_name as name, COUNT(ds.doctorID) as count 
+         FROM {$wpdb->prefix}specialties s 
+         LEFT JOIN {$wpdb->prefix}doctor_specialties ds ON s.specialtyID = ds.specialtyID 
+         GROUP BY s.specialtyID 
+         ORDER BY s.specialty_name",
+        ARRAY_A
+    );
+    
+    return rest_ensure_response($specialties);
+}
+
+function fnd_get_local_languages() {
+    global $wpdb;
+    
+    $languages = $wpdb->get_results(
+        "SELECT l.language as name, COUNT(dl.doctorID) as count 
+         FROM {$wpdb->prefix}languages l 
+         LEFT JOIN {$wpdb->prefix}doctor_language dl ON l.languageID = dl.languageID 
+         GROUP BY l.languageID 
+         ORDER BY l.language",
+        ARRAY_A
+    );
+    
+    return rest_ensure_response($languages);
+}
+
+function fnd_get_local_hospitals() {
+    global $wpdb;
+    
+    $hospitals = $wpdb->get_results(
+        "SELECT h.hospital_name as name, COUNT(dh.doctorID) as count 
+         FROM {$wpdb->prefix}hospitals h 
+         LEFT JOIN {$wpdb->prefix}doctor_hospital dh ON h.hospitalID = dh.hospitalID 
+         GROUP BY h.hospitalID 
+         ORDER BY h.hospital_name",
+        ARRAY_A
+    );
+    
+    return rest_ensure_response($hospitals);
+}
+
+function fnd_get_local_insurances() {
+    global $wpdb;
+    
+    $insurances = $wpdb->get_results(
+        "SELECT i.insurance_name as name, i.insurance_type as type, COUNT(di.doctorID) as count 
+         FROM {$wpdb->prefix}insurances i 
+         LEFT JOIN {$wpdb->prefix}doctor_insurance di ON i.insuranceID = di.insuranceID 
+         GROUP BY i.insuranceID 
+         ORDER BY i.insurance_name",
+        ARRAY_A
+    );
+    
+    return rest_ensure_response($insurances);
 }
