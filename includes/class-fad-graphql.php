@@ -120,6 +120,16 @@ add_action('graphql_register_types', function () {
             return $wpdb->get_col("SELECT DISTINCT insurance_name FROM {$wpdb->prefix}insurances ORDER BY insurance_name");
         },
     ]);
+
+    // --- Degrees Query ---
+    register_graphql_field('RootQuery', 'degrees', [
+        'type' => ['list_of' => 'String'],
+        'description' => __('Get all available degrees','fad-graphql'),
+        'resolve' => function ($root, $args) {
+            global $wpdb;
+            return $wpdb->get_col("SELECT DISTINCT degree_name FROM {$wpdb->prefix}degrees ORDER BY degree_name");
+        },
+    ]);
     register_graphql_object_type('Doctor', [
         'description' => __('Doctor profile row from custom tables','fad-graphql'),
         'fields'      => [
@@ -151,7 +161,7 @@ add_action('graphql_register_types', function () {
             'longitude'       => ['type' => 'Float'],
             'accepts_new_patients' => ['type' => 'Boolean'],
             'accept_medi_cal' => ['type' => 'Boolean'],
-            'insurances'      => ['type' => 'String'],
+            'insurances'      => ['type' => ['list_of' => 'String']],
             'hospitalNames'   => ['type' => 'String'], // Deprecated - use hospitals field
             'hospitals'       => ['type' => ['list_of' => 'String']], // New normalized field
             'mentalHealth'    => ['type' => 'Boolean'],
@@ -159,6 +169,7 @@ add_action('graphql_register_types', function () {
             'profileImageUrl' => ['type' => 'String'],
             'languages'       => ['type' => ['list_of' => 'String']],
             'specialties'     => ['type' => ['list_of' => 'String']],
+            'degrees'         => ['type' => ['list_of' => 'String']],
         ],
     ]);
 
@@ -194,7 +205,7 @@ add_action('graphql_register_types', function () {
             'longitude'       => isset($row['longitude']) ? (float)$row['longitude'] : null,
             'accepts_new_patients' => ! empty($row['accepts_new_patients']),
             'accept_medi_cal' => ! empty($row['accept_medi_cal']),
-            'insurances'      => $row['insurances'] ?? ($row['Insurances'] ?? ''), 
+            'insurances'      => fad_get_terms_for_doctor('insurance', $doctor_id), 
             'hospitalNames'   => $row['hospitalNames'] ?? ($row['hospital_names'] ?? ''),
             'hospitals'       => fad_get_doctor_hospitals($doctor_id, $row['hospitalNames'] ?? ($row['hospital_names'] ?? '')),
             'mentalHealth'    => ! empty($row['is_ab_directory']),
@@ -202,6 +213,7 @@ add_action('graphql_register_types', function () {
             'profileImageUrl' => $row['profile_img_url'] ?? '',
             'languages'       => fad_get_terms_for_doctor('language', $doctor_id),
             'specialties'     => fad_get_terms_for_doctor('specialty', $doctor_id),
+            'degrees'         => fad_get_terms_for_doctor('degree', $doctor_id),
         ];
     };
 

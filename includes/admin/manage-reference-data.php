@@ -6,6 +6,7 @@ function fnd_render_reference_data_page() {
     $tables = [
         'languages' => ['name' => 'Languages', 'key' => 'languageID', 'fields' => ['language' => 'text']],
         'specialties' => ['name' => 'Specialties', 'key' => 'specialtyID', 'fields' => ['specialty_name' => 'text']],
+        'degrees' => ['name' => 'Degrees', 'key' => 'degreeID', 'fields' => ['degree_name' => 'text', 'degree_type' => 'select']],
         'insurances' => ['name' => 'Insurances', 'key' => 'insuranceID', 'fields' => ['insurance_name' => 'text', 'insurance_type' => 'select']],
         'hospitals' => ['name' => 'Hospitals', 'key' => 'hospitalID', 'fields' => ['hospital_name' => 'text']],
         'zocdoc' => ['name' => 'Zocdoc', 'key' => 'zocdocID', 'fields' => ['zocdoc_name' => 'text']],
@@ -229,7 +230,16 @@ jQuery(function($){
                            '<option value="ppo"'+(value=='ppo'?' selected':'')+'>PPO</option>' +
                            '<option value="acn"'+(value=='acn'?' selected':'')+'>ACN</option>' +
                            '<option value="aco"'+(value=='aco'?' selected':'')+'>ACO</option>' +
+                           '<option value="medi_cal"'+(value=='medi_cal'?' selected':'')+'>Medi-Cal</option>' +
                            '<option value="plan_link"'+(value=='plan_link'?' selected':'')+'>Plan Link</option>' +
+                           '<option value="network"'+(value=='network'?' selected':'')+'>Network</option>' +
+                           '</select></p>';
+            } else if (type === 'select' && field === 'degree_type') {
+                fieldHtml = '<p><label>'+labelText+':</label><br><select name="'+field+'" class="regular-text">' +
+                           '<option value="medical"'+(value=='medical'?' selected':'')+'>Medical</option>' +
+                           '<option value="doctoral"'+(value=='doctoral'?' selected':'')+'>Doctoral</option>' +
+                           '<option value="masters"'+(value=='masters'?' selected':'')+'>Masters</option>' +
+                           '<option value="other"'+(value=='other'?' selected':'')+'>Other</option>' +
                            '</select></p>';
             } else {
                 fieldHtml = '<p><label>'+labelText+':</label><br><input type="text" name="'+field+'" value="'+value+'" class="regular-text"></p>';

@@ -105,6 +105,13 @@ class FAD_Headless_API {
             'permission_callback' => '__return_true'
         ]);
         
+        // Get all degrees for filters
+        register_rest_route('fad/v1', '/degrees', [
+            'methods' => 'GET',
+            'callback' => [__CLASS__, 'get_degrees'],
+            'permission_callback' => '__return_true'
+        ]);
+        
         // Generate sitemap data for physicians
         register_rest_route('fad/v1', '/sitemap', [
             'methods' => 'GET',
@@ -158,6 +165,7 @@ class FAD_Headless_API {
         // Add related data
         $physician['languages'] = fad_get_terms_for_doctor('language', $physician['doctorID']);
         $physician['specialties'] = fad_get_terms_for_doctor('specialty', $physician['doctorID']);
+        $physician['degrees'] = fad_get_terms_for_doctor('degree', $physician['doctorID']);
         
         // Format for frontend consumption
         return self::format_physician_for_api($physician);
@@ -327,6 +335,24 @@ class FAD_Headless_API {
     }
     
     /**
+     * Get all degrees
+     */
+    public static function get_degrees($request) {
+        global $wpdb;
+        
+        $degrees = $wpdb->get_results(
+            "SELECT d.degree_name as name, d.degree_type as type, COUNT(dd.doctorID) as count 
+             FROM {$wpdb->prefix}degrees d 
+             LEFT JOIN {$wpdb->prefix}doctor_degrees dd ON d.degreeID = dd.degreeID 
+             GROUP BY d.degreeID 
+             ORDER BY d.degree_name",
+            ARRAY_A
+        );
+        
+        return $degrees;
+    }
+    
+    /**
      * Get sitemap data for SEO
      */
     public static function get_sitemap_data($request) {
@@ -389,7 +415,7 @@ class FAD_Headless_API {
             'specialties' => $physician['specialties'] ?? [],
             'languages' => $physician['languages'] ?? [],
             'networks' => [
-                'insurances' => $physician['Insurances'] ? explode(',', $physician['Insurances']) : [],
+                'insurances' => fad_get_terms_for_doctor('insurance', $physician['doctorID']),
                 'hospitals' => fad_get_doctor_hospitals($physician['doctorID'], $physician['hospitalNames'] ?? '')
             ],
             'metadata' => [

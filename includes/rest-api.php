@@ -129,6 +129,12 @@ add_action('rest_api_init', function () {
         'callback' => 'fnd_get_local_insurances',
         'permission_callback' => '__return_true'
     ]);
+    
+    register_rest_route('finddoctor/v1', '/local/degrees', [
+        'methods' => 'GET',
+        'callback' => 'fnd_get_local_degrees',
+        'permission_callback' => '__return_true'
+    ]);
 });
 
 function fnd_get_doctors() {
@@ -171,6 +177,8 @@ function fnd_get_physicians_headless($request) {
         $physician['languages'] = fad_get_terms_for_doctor('language', $physician['doctorID']);
         $physician['specialties'] = fad_get_terms_for_doctor('specialty', $physician['doctorID']);
         $physician['hospitals'] = fad_get_doctor_hospitals($physician['doctorID'], $physician['hospitalNames'] ?? '');
+        $physician['degrees'] = fad_get_terms_for_doctor('degree', $physician['doctorID']);
+        $physician['insurances'] = fad_get_terms_for_doctor('insurance', $physician['doctorID']);
     }
     
     return rest_ensure_response([
@@ -202,6 +210,8 @@ function fnd_get_physician_by_slug($request) {
     $physician['languages'] = fad_get_terms_for_doctor('language', $physician['doctorID']);
     $physician['specialties'] = fad_get_terms_for_doctor('specialty', $physician['doctorID']);
     $physician['hospitals'] = fad_get_doctor_hospitals($physician['doctorID'], $physician['hospitalNames'] ?? '');
+    $physician['degrees'] = fad_get_terms_for_doctor('degree', $physician['doctorID']);
+    $physician['insurances'] = fad_get_terms_for_doctor('insurance', $physician['doctorID']);
     
     return rest_ensure_response($physician);
 }
@@ -365,4 +375,19 @@ function fnd_get_local_insurances() {
     );
     
     return rest_ensure_response($insurances);
+}
+
+function fnd_get_local_degrees() {
+    global $wpdb;
+    
+    $degrees = $wpdb->get_results(
+        "SELECT d.degree_name as name, d.degree_type as type, COUNT(dd.doctorID) as count 
+         FROM {$wpdb->prefix}degrees d 
+         LEFT JOIN {$wpdb->prefix}doctor_degrees dd ON d.degreeID = dd.degreeID 
+         GROUP BY d.degreeID 
+         ORDER BY d.degree_name",
+        ARRAY_A
+    );
+    
+    return rest_ensure_response($degrees);
 }

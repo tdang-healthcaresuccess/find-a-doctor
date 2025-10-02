@@ -63,13 +63,20 @@ function fnd_create_tables() {
             "Insurances" => "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}insurances (
                 insuranceID INT AUTO_INCREMENT PRIMARY KEY,
                 insurance_name VARCHAR(255),
-                insurance_type ENUM('hmo', 'ppo', 'acn', 'aco', 'plan_link') DEFAULT 'ppo'
+                insurance_type ENUM('hmo', 'ppo', 'acn', 'aco', 'medi_cal', 'plan_link', 'network') DEFAULT 'network'
             ) ENGINE=InnoDB $charset_collate;",
 
             // Hospitals
             "Hospitals" => "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}hospitals (
                 hospitalID INT AUTO_INCREMENT PRIMARY KEY,
                 hospital_name VARCHAR(255)
+            ) ENGINE=InnoDB $charset_collate;",
+
+            // Degrees
+            "Degrees" => "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}degrees (
+                degreeID INT AUTO_INCREMENT PRIMARY KEY,
+                degree_name VARCHAR(255),
+                degree_type ENUM('medical', 'doctoral', 'masters', 'other') DEFAULT 'medical'
             ) ENGINE=InnoDB $charset_collate;",
 
             // Doctor_Language
@@ -102,6 +109,17 @@ function fnd_create_tables() {
                 FOREIGN KEY (doctorID) REFERENCES {$wpdb->prefix}doctors(doctorID)
                     ON DELETE CASCADE ON UPDATE CASCADE,
                 FOREIGN KEY (hospitalID) REFERENCES {$wpdb->prefix}hospitals(hospitalID)
+                    ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB $charset_collate;",
+            
+            // Doctor_Degrees
+            "Doctor_Degrees" => "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}doctor_degrees (
+                doctorID INT,
+                degreeID INT,
+                PRIMARY KEY (doctorID, degreeID),
+                FOREIGN KEY (doctorID) REFERENCES {$wpdb->prefix}doctors(doctorID)
+                    ON DELETE CASCADE ON UPDATE CASCADE,
+                FOREIGN KEY (degreeID) REFERENCES {$wpdb->prefix}degrees(degreeID)
                     ON DELETE CASCADE ON UPDATE CASCADE
             ) ENGINE=InnoDB $charset_collate;",
             

@@ -69,6 +69,16 @@ function fad_get_terms_for_doctor($type, $doctor_id) {
             $term = $wpdb->prefix . 'specialties';
             $sql  = "SELECT s.specialty_name FROM {$link} ds JOIN {$term} s ON s.specialtyID  = ds.specialtyID  WHERE ds.doctorID = %d ORDER BY s.specialty_name";
             break;
+        case 'degree':
+            $link = $wpdb->prefix . 'doctor_degrees';
+            $term = $wpdb->prefix . 'degrees';
+            $sql  = "SELECT d.degree_name FROM {$link} dd JOIN {$term} d ON d.degreeID = dd.degreeID WHERE dd.doctorID = %d ORDER BY d.degree_name";
+            break;
+        case 'insurance':
+            $link = $wpdb->prefix . 'doctor_insurance';
+            $term = $wpdb->prefix . 'insurances';
+            $sql  = "SELECT i.insurance_name FROM {$link} di JOIN {$term} i ON i.insuranceID = di.insuranceID WHERE di.doctorID = %d ORDER BY i.insurance_name";
+            break;
         default:
             return [];
     }

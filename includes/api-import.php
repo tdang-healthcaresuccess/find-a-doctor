@@ -428,13 +428,17 @@ function fad_import_doctors_from_api($search_params = [], $dry_run = false, $imp
         $language_cache = [];
         $specialty_cache = [];
         $hospital_cache = [];
+        $degree_cache = [];
+        $insurance_cache = [];
         $insert_language_relations = [];
         $insert_specialty_relations = [];
         $insert_hospital_relations = [];
+        $insert_degree_relations = [];
+        $insert_insurance_relations = [];
         
         foreach ($physicians as $physician_data) {
             try {
-                $result = fad_process_physician_data($physician_data, $language_cache, $specialty_cache, $hospital_cache, $insert_language_relations, $insert_specialty_relations, $insert_hospital_relations, $dry_run);
+                $result = fad_process_physician_data($physician_data, $language_cache, $specialty_cache, $hospital_cache, $degree_cache, $insurance_cache, $insert_language_relations, $insert_specialty_relations, $insert_hospital_relations, $insert_degree_relations, $insert_insurance_relations, $dry_run);
                 
                 if ($dry_run) {
                     // In dry run mode, collect preview data
@@ -471,6 +475,16 @@ function fad_import_doctors_from_api($search_params = [], $dry_run = false, $imp
                 $values_sql = implode(',', $insert_hospital_relations);
                 $wpdb->query("INSERT IGNORE INTO {$wpdb->prefix}doctor_hospital (doctorID, hospitalID) VALUES $values_sql");
             }
+            
+            if (!empty($insert_degree_relations)) {
+                $values_sql = implode(',', $insert_degree_relations);
+                $wpdb->query("INSERT IGNORE INTO {$wpdb->prefix}doctor_degrees (doctorID, degreeID) VALUES $values_sql");
+            }
+            
+            if (!empty($insert_insurance_relations)) {
+                $values_sql = implode(',', $insert_insurance_relations);
+                $wpdb->query("INSERT IGNORE INTO {$wpdb->prefix}doctor_insurance (doctorID, insuranceID) VALUES $values_sql");
+            }
         }
         
         $results['success'] = true;
@@ -506,13 +520,15 @@ function fad_import_doctors_from_api($search_params = [], $dry_run = false, $imp
  * @param array &$language_cache Reference to language cache
  * @param array &$specialty_cache Reference to specialty cache
  * @param array &$hospital_cache Reference to hospital cache
+ * @param array &$degree_cache Reference to degree cache
  * @param array &$insert_language_relations Reference to language relations
  * @param array &$insert_specialty_relations Reference to specialty relations
  * @param array &$insert_hospital_relations Reference to hospital relations
+ * @param array &$insert_degree_relations Reference to degree relations
  * @param bool $dry_run If true, only preview without database changes
  * @return array Processing result
  */
-function fad_process_physician_data($physician_data, &$language_cache, &$specialty_cache, &$hospital_cache, &$insert_language_relations, &$insert_specialty_relations, &$insert_hospital_relations, $dry_run = false) {
+function fad_process_physician_data($physician_data, &$language_cache, &$specialty_cache, &$hospital_cache, &$degree_cache, &$insurance_cache, &$insert_language_relations, &$insert_specialty_relations, &$insert_hospital_relations, &$insert_degree_relations, &$insert_insurance_relations, $dry_run = false) {
     global $wpdb;
     
     // Map API fields to database fields
@@ -617,6 +633,14 @@ function fad_process_physician_data($physician_data, &$language_cache, &$special
                 "{$wpdb->prefix}doctor_hospital", 
                 ['doctorID' => $existing_doctor_id]
             );
+            $wpdb->delete(
+                "{$wpdb->prefix}doctor_degrees", 
+                ['doctorID' => $existing_doctor_id]
+            );
+            $wpdb->delete(
+                "{$wpdb->prefix}doctor_insurance", 
+                ['doctorID' => $existing_doctor_id]
+            );
         }
     } else {
         $action = 'imported';
@@ -645,6 +669,8 @@ function fad_process_physician_data($physician_data, &$language_cache, &$special
         'languages' => [],
         'specialties' => [],
         'hospitals' => [],
+        'degrees' => [],
+        'insurances' => [],
         'duplicate_check_method' => $duplicate_check_method ?? 'none'
     ];
     
@@ -729,6 +755,173 @@ function fad_process_physician_data($physician_data, &$language_cache, &$special
                 
                 $insert_hospital_relations[] = $wpdb->prepare("(%d, %d)", $doctor_id, $hospital_cache[$hospital_name]);
             }
+        }
+    }
+    
+    // Process degrees (from the main degree field - mimic specialty processing)
+    if (!empty($doctor_data['degree'])) {
+        $degree_name = trim($doctor_data['degree']);
+        if (!empty($degree_name)) {
+            $preview_data['degrees'][] = $degree_name;
+            
+            if (!$dry_run) {
+                if (!isset($degree_cache[$degree_name])) {
+                    $degree_id = $wpdb->get_var($wpdb->prepare(
+                        "SELECT degreeID FROM {$wpdb->prefix}degrees WHERE degree_name = %s",
+                        $degree_name
+                    ));
+                    
+                    if (!$degree_id) {
+                        // Determine degree type based on common patterns
+                        $degree_type = 'medical'; // default for medical professionals
+                        $degree_lower = strtolower($degree_name);
+                        
+                        // Doctoral (non-medical) degrees
+                        if (strpos($degree_lower, 'phd') !== false || strpos($degree_lower, 'edd') !== false) {
+                            $degree_type = 'doctoral';
+                        } 
+                        // Masters degrees
+                        elseif (strpos($degree_lower, 'ms') !== false || strpos($degree_lower, 'ma') !== false || strpos($degree_lower, 'mba') !== false) {
+                            $degree_type = 'masters';
+                        }
+                        // Medical degrees - comprehensive list (keep as medical)
+                        elseif (
+                            strpos($degree_lower, 'md') !== false ||
+                            strpos($degree_lower, 'm.d.') !== false ||
+                            strpos($degree_lower, 'do') !== false ||
+                            strpos($degree_lower, 'd.o.') !== false ||
+                            strpos($degree_lower, 'dpm') !== false ||
+                            strpos($degree_lower, 'd.p.m.') !== false ||
+                            strpos($degree_lower, 'np') !== false ||
+                            strpos($degree_lower, 'n.p.') !== false ||
+                            strpos($degree_lower, 'pa') !== false ||
+                            strpos($degree_lower, 'p.a.') !== false ||
+                            strpos($degree_lower, 'lcsw') !== false ||
+                            strpos($degree_lower, 'acu') !== false ||
+                            strpos($degree_lower, 'rd') !== false ||
+                            strpos($degree_lower, 'r.d.') !== false ||
+                            strpos($degree_lower, 'pharmd') !== false ||
+                            strpos($degree_lower, 'pharm.d.') !== false ||
+                            strpos($degree_lower, 'dds') !== false ||
+                            strpos($degree_lower, 'd.d.s.') !== false ||
+                            strpos($degree_lower, 'dmd') !== false ||
+                            strpos($degree_lower, 'd.m.d.') !== false ||
+                            strpos($degree_lower, 'dpt') !== false ||
+                            strpos($degree_lower, 'd.p.t.') !== false ||
+                            strpos($degree_lower, 'otr') !== false ||
+                            strpos($degree_lower, 'o.t.r.') !== false ||
+                            strpos($degree_lower, 'rn') !== false ||
+                            strpos($degree_lower, 'r.n.') !== false ||
+                            strpos($degree_lower, 'cnm') !== false ||
+                            strpos($degree_lower, 'c.n.m.') !== false ||
+                            strpos($degree_lower, 'crna') !== false ||
+                            strpos($degree_lower, 'c.r.n.a.') !== false
+                        ) {
+                            $degree_type = 'medical';
+                        }
+                        // Everything else as other
+                        else {
+                            $degree_type = 'other';
+                        }
+                        
+                        $wpdb->insert("{$wpdb->prefix}degrees", [
+                            'degree_name' => $degree_name,
+                            'degree_type' => $degree_type
+                        ]);
+                        $degree_id = $wpdb->insert_id;
+                    }
+                    
+                    $degree_cache[$degree_name] = $degree_id;
+                }
+                
+                $insert_degree_relations[] = $wpdb->prepare("(%d, %d)", $doctor_id, $degree_cache[$degree_name]);
+            }
+        }
+    }
+    
+    // Process insurance networks
+    if (isset($physician_data['insurance_networks']) && is_array($physician_data['insurance_networks'])) {
+        foreach ($physician_data['insurance_networks'] as $insurance_data) {
+            $insurance_name = trim($insurance_data['name'] ?? $insurance_data);
+            if (empty($insurance_name)) continue;
+            
+            $insurance_type = $insurance_data['type'] ?? 'network'; // Default type
+            
+            $preview_data['insurances'][] = $insurance_name . ' (' . $insurance_type . ')';
+            
+            if (!$dry_run) {
+                $cache_key = $insurance_name . '|' . $insurance_type;
+                if (!isset($insurance_cache[$cache_key])) {
+                    $insurance_id = $wpdb->get_var($wpdb->prepare(
+                        "SELECT insuranceID FROM {$wpdb->prefix}insurances WHERE insurance_name = %s AND insurance_type = %s",
+                        $insurance_name,
+                        $insurance_type
+                    ));
+                    
+                    if (!$insurance_id) {
+                        $wpdb->insert("{$wpdb->prefix}insurances", [
+                            'insurance_name' => $insurance_name,
+                            'insurance_type' => $insurance_type
+                        ]);
+                        $insurance_id = $wpdb->insert_id;
+                    }
+                    
+                    $insurance_cache[$cache_key] = $insurance_id;
+                }
+                
+                $insert_insurance_relations[] = $wpdb->prepare("(%d, %d)", $doctor_id, $insurance_cache[$cache_key]);
+            }
+        }
+    }
+    
+    // Also process legacy insurance networks from mapped data
+    $all_insurance_networks = [];
+    $legacy_insurance_types = [
+        'hmo_networks' => 'hmo',
+        'ppo_networks' => 'ppo',
+        'aco_networks' => 'aco',
+        'acn_networks' => 'acn',
+        'medi_cal_networks' => 'medi_cal'
+    ];
+    
+    foreach ($legacy_insurance_types as $api_field => $type) {
+        if (isset($physician_data[$api_field]) && is_array($physician_data[$api_field])) {
+            foreach ($physician_data[$api_field] as $insurance_name) {
+                $insurance_name = trim($insurance_name);
+                if (!empty($insurance_name)) {
+                    $all_insurance_networks[] = ['name' => $insurance_name, 'type' => $type];
+                }
+            }
+        }
+    }
+    
+    foreach ($all_insurance_networks as $insurance_data) {
+        $insurance_name = $insurance_data['name'];
+        $insurance_type = $insurance_data['type'];
+        
+        $preview_data['insurances'][] = $insurance_name . ' (' . $insurance_type . ')';
+        
+        if (!$dry_run) {
+            $cache_key = $insurance_name . '|' . $insurance_type;
+            if (!isset($insurance_cache[$cache_key])) {
+                $insurance_id = $wpdb->get_var($wpdb->prepare(
+                    "SELECT insuranceID FROM {$wpdb->prefix}insurances WHERE insurance_name = %s AND insurance_type = %s",
+                    $insurance_name,
+                    $insurance_type
+                ));
+                
+                if (!$insurance_id) {
+                    $wpdb->insert("{$wpdb->prefix}insurances", [
+                        'insurance_name' => $insurance_name,
+                        'insurance_type' => $insurance_type
+                    ]);
+                    $insurance_id = $wpdb->insert_id;
+                }
+                
+                $insurance_cache[$cache_key] = $insurance_id;
+            }
+            
+            $insert_insurance_relations[] = $wpdb->prepare("(%d, %d)", $doctor_id, $insurance_cache[$cache_key]);
         }
     }
     
@@ -1183,11 +1376,13 @@ function fad_validate_database_schema() {
         ],
         'specialties' => ['specialtyID', 'specialty_name'],
         'languages' => ['languageID', 'language'],
+        'degrees' => ['degreeID', 'degree_name', 'degree_type'],
         'zocdoc' => ['zocdocID', 'book', 'book_url'],
         'hospitals' => ['hospitalID', 'hospital_name'],
         'insurances' => ['insuranceID', 'insurance_name', 'insurance_type'],
         'doctor_specialties' => ['specialtyID', 'doctorID'],
         'doctor_language' => ['doctorID', 'languageID'],
+        'doctor_degrees' => ['doctorID', 'degreeID'],
         'doctor_zocdoc' => ['zocdocID', 'doctorID'],
         'doctor_insurance' => ['doctorID', 'insuranceID'],
         'doctor_hospital' => ['doctorID', 'hospitalID']
@@ -1784,6 +1979,7 @@ function fad_update_physician_relationships($doctor_id, $physician_data) {
     $wpdb->delete($wpdb->prefix . 'doctor_language', ['doctorID' => $doctor_id]);
     $wpdb->delete($wpdb->prefix . 'doctor_insurance', ['doctorID' => $doctor_id]);
     $wpdb->delete($wpdb->prefix . 'doctor_hospital', ['doctorID' => $doctor_id]);
+    $wpdb->delete($wpdb->prefix . 'doctor_degrees', ['doctorID' => $doctor_id]);
     
     // Handle specialties
     if (!empty($physician_data['specialties']) && is_array($physician_data['specialties'])) {
@@ -1917,6 +2113,91 @@ function fad_update_physician_relationships($doctor_id, $physician_data) {
                 $wpdb->insert($wpdb->prefix . 'doctor_hospital', [
                     'doctorID' => $doctor_id,
                     'hospitalID' => $hospital_id
+                ]);
+            }
+        }
+    }
+    
+    // Handle degrees (from suffix field) - mimic specialty processing
+    if (!empty($physician_data['suffix'])) {
+        $degree_name = trim($physician_data['suffix']);
+        if (!empty($degree_name)) {
+            // Get or create degree
+            $degree_id = $wpdb->get_var($wpdb->prepare(
+                "SELECT degreeID FROM {$wpdb->prefix}degrees WHERE degree_name = %s",
+                $degree_name
+            ));
+            
+            if (!$degree_id) {
+                // Determine degree type based on common patterns
+                $degree_type = 'medical'; // default for medical professionals
+                $degree_lower = strtolower($degree_name);
+                
+                // Doctoral (non-medical) degrees
+                if (strpos($degree_lower, 'phd') !== false || strpos($degree_lower, 'edd') !== false) {
+                    $degree_type = 'doctoral';
+                } 
+                // Masters degrees
+                elseif (strpos($degree_lower, 'ms') !== false || strpos($degree_lower, 'ma') !== false || strpos($degree_lower, 'mba') !== false) {
+                    $degree_type = 'masters';
+                }
+                // Medical degrees - comprehensive list (keep as medical)
+                elseif (
+                    strpos($degree_lower, 'md') !== false ||
+                    strpos($degree_lower, 'm.d.') !== false ||
+                    strpos($degree_lower, 'do') !== false ||
+                    strpos($degree_lower, 'd.o.') !== false ||
+                    strpos($degree_lower, 'dpm') !== false ||
+                    strpos($degree_lower, 'd.p.m.') !== false ||
+                    strpos($degree_lower, 'np') !== false ||
+                    strpos($degree_lower, 'n.p.') !== false ||
+                    strpos($degree_lower, 'pa') !== false ||
+                    strpos($degree_lower, 'p.a.') !== false ||
+                    strpos($degree_lower, 'lcsw') !== false ||
+                    strpos($degree_lower, 'acu') !== false ||
+                    strpos($degree_lower, 'rd') !== false ||
+                    strpos($degree_lower, 'r.d.') !== false ||
+                    strpos($degree_lower, 'pharmd') !== false ||
+                    strpos($degree_lower, 'pharm.d.') !== false ||
+                    strpos($degree_lower, 'dds') !== false ||
+                    strpos($degree_lower, 'd.d.s.') !== false ||
+                    strpos($degree_lower, 'dmd') !== false ||
+                    strpos($degree_lower, 'd.m.d.') !== false ||
+                    strpos($degree_lower, 'dpt') !== false ||
+                    strpos($degree_lower, 'd.p.t.') !== false ||
+                    strpos($degree_lower, 'otr') !== false ||
+                    strpos($degree_lower, 'o.t.r.') !== false ||
+                    strpos($degree_lower, 'rn') !== false ||
+                    strpos($degree_lower, 'r.n.') !== false ||
+                    strpos($degree_lower, 'cnm') !== false ||
+                    strpos($degree_lower, 'c.n.m.') !== false ||
+                    strpos($degree_lower, 'crna') !== false ||
+                    strpos($degree_lower, 'c.r.n.a.') !== false
+                ) {
+                    $degree_type = 'medical';
+                }
+                // Everything else as other
+                else {
+                    $degree_type = 'other';
+                }
+                
+                $wpdb->insert($wpdb->prefix . 'degrees', [
+                    'degree_name' => $degree_name,
+                    'degree_type' => $degree_type
+                ]);
+                $degree_id = $wpdb->insert_id;
+            }
+            
+            // Link doctor to degree (avoid duplicates)
+            $existing = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->prefix}doctor_degrees WHERE doctorID = %d AND degreeID = %d",
+                $doctor_id, $degree_id
+            ));
+            
+            if (!$existing) {
+                $wpdb->insert($wpdb->prefix . 'doctor_degrees', [
+                    'doctorID' => $doctor_id,
+                    'degreeID' => $degree_id
                 ]);
             }
         }
