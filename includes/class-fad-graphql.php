@@ -270,13 +270,15 @@ add_action('graphql_register_types', function () {
     // --- doctors(...) list with filters ---
     register_graphql_field('RootQuery', 'doctorsList', [
         'type'        => 'DoctorList',
-        'description' => __('Paginated doctors with common filters','fad-graphql'),
+        'description' => __('Paginated doctors with common filters (search, specialty, language, gender, degree, insurance, primaryCare)','fad-graphql'),
         'args'        => [
             'search'      => ['type' => 'String'],
             'specialty'   => ['type' => 'String'],
             'language'    => ['type' => 'String'],
             'gender'      => ['type' => 'String'],
             'primaryCare' => ['type' => 'Boolean'],
+            'degree'      => ['type' => 'String'],
+            'insurance'   => ['type' => 'String'],
             'page'        => ['type' => 'Int'],
             'perPage'     => ['type' => 'Int'],
             'orderBy'     => ['type' => 'String'], // first_name|last_name|degree|practice_name
@@ -289,6 +291,10 @@ add_action('graphql_register_types', function () {
             $t_specs     = $wpdb->prefix . 'specialties';
             $t_doc_lang  = $wpdb->prefix . 'doctor_language';
             $t_lang      = $wpdb->prefix . 'languages';
+            $t_doc_deg   = $wpdb->prefix . 'doctor_degrees';
+            $t_degrees   = $wpdb->prefix . 'degrees';
+            $t_doc_ins   = $wpdb->prefix . 'doctor_insurance';
+            $t_insurance = $wpdb->prefix . 'insurances';
 
             $where  = [];
             $params = [];
@@ -319,6 +325,18 @@ add_action('graphql_register_types', function () {
                 $join[]   = "INNER JOIN {$t_lang} l ON l.languageID = dl.languageID";
                 $where[]  = 'LOWER(l.language) = LOWER(%s)';
                 $params[] = $args['language'];
+            }
+            if (!empty($args['degree'])) {
+                $join[]   = "INNER JOIN {$t_doc_deg} dd ON dd.doctorID = d.doctorID";
+                $join[]   = "INNER JOIN {$t_degrees} deg ON deg.degreeID = dd.degreeID";
+                $where[]  = 'LOWER(deg.degree_name) = LOWER(%s)';
+                $params[] = $args['degree'];
+            }
+            if (!empty($args['insurance'])) {
+                $join[]   = "INNER JOIN {$t_doc_ins} di ON di.doctorID = d.doctorID";
+                $join[]   = "INNER JOIN {$t_insurance} ins ON ins.insuranceID = di.insuranceID";
+                $where[]  = 'LOWER(ins.insurance_name) = LOWER(%s)';
+                $params[] = $args['insurance'];
             }
 
             $where_sql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
