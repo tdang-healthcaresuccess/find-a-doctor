@@ -11,17 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GraphQL Search Enhancement**: Added degree and insurance search parameters to `doctorsList` query
   - New `degree` parameter for filtering by physician degrees (M.D., D.O., N.P., etc.)
   - New `insurance` parameter for filtering by insurance networks
+  - **Multiple Specialties Support**: Enhanced `specialty` parameter to accept array of specialties
   - Case-insensitive search matching for all parameters
   - Efficient JOIN-based filtering using normalized relationship tables
 
 ### Enhanced
+- **Specialty Filtering**: `specialty` parameter now supports multiple values with OR logic
+  - Accepts array: `specialty: ["Cardiology", "Internal Medicine", "Family Medicine"]`
+  - Backwards compatible: single specialty queries still work
+  - Finds doctors who match ANY of the specified specialties
 - GraphQL query description updated to reflect new search capabilities
 - Database queries optimized with proper foreign key relationships
 - Comprehensive test documentation for new search features
 
 ### Technical
 - Updated `class-fad-graphql.php` with enhanced search functionality
+- Added support for multiple specialty filtering with dynamic placeholder generation
 - Added support for `wp_doctor_degrees` and `wp_doctor_insurance` table relationships
+- Implemented comprehensive version management system
 - Maintained backwards compatibility with existing queries
 
 ## [2.3.0] - Previous Release

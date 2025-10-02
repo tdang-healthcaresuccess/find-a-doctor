@@ -270,10 +270,10 @@ add_action('graphql_register_types', function () {
     // --- doctors(...) list with filters ---
     register_graphql_field('RootQuery', 'doctorsList', [
         'type'        => 'DoctorList',
-        'description' => __('Paginated doctors with common filters (search, specialty, language, gender, degree, insurance, primaryCare)','fad-graphql'),
+        'description' => __('Paginated doctors with common filters (search, specialties array, language, gender, degree, insurance, primaryCare)','fad-graphql'),
         'args'        => [
             'search'      => ['type' => 'String'],
-            'specialty'   => ['type' => 'String'],
+            'specialty'   => ['type' => ['list_of' => 'String']],
             'language'    => ['type' => 'String'],
             'gender'      => ['type' => 'String'],
             'primaryCare' => ['type' => 'Boolean'],
@@ -317,8 +317,19 @@ add_action('graphql_register_types', function () {
             if (!empty($args['specialty'])) {
                 $join[]   = "INNER JOIN {$t_doc_spec} ds ON ds.doctorID = d.doctorID";
                 $join[]   = "INNER JOIN {$t_specs} s ON s.specialtyID = ds.specialtyID";
-                $where[]  = 'LOWER(s.specialty_name) = LOWER(%s)';
-                $params[] = $args['specialty'];
+                
+                // Handle array of specialties
+                if (is_array($args['specialty'])) {
+                    $specialty_placeholders = array_fill(0, count($args['specialty']), 'LOWER(s.specialty_name) = LOWER(%s)');
+                    $where[] = '(' . implode(' OR ', $specialty_placeholders) . ')';
+                    foreach ($args['specialty'] as $specialty) {
+                        $params[] = $specialty;
+                    }
+                } else {
+                    // Backwards compatibility: single specialty as string
+                    $where[]  = 'LOWER(s.specialty_name) = LOWER(%s)';
+                    $params[] = $args['specialty'];
+                }
             }
             if (!empty($args['language'])) { 
                 $join[]   = "INNER JOIN {$t_doc_lang} dl ON dl.doctorID = d.doctorID";
