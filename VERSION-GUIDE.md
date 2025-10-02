@@ -74,8 +74,14 @@ Follow [Semantic Versioning](https://semver.org/):
 
 ### v2.4.0 (2025-10-01)
 - ✅ Added degree and insurance search to GraphQL doctorsList query
+- ✅ Enhanced specialty search to support multiple specialties with OR logic
 - ✅ Enhanced search capabilities with normalized relationship filtering
 - ✅ Implemented comprehensive version management system
+
+### Future Development (TODO)
+- 🔲 Specialty Custom Post Type implementation with slug functionality
+- 🔲 Enhanced URL rewrite rules for specialty-based routing
+- 🔲 SEO optimization for specialty landing pages
 
 ### v2.3.0 (Previous)
 - ✅ Complete insurance relationship normalization

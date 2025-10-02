@@ -5,6 +5,15 @@ All notable changes to the Find a Doctor WordPress plugin will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### TODO - Future Development
+- **Specialty Custom Post Type**: Implement specialty custom post type with slug functionality
+  - Create custom post type for specialties with proper slug handling
+  - Update URL rewrite rules for specialty-based routing
+  - Enhance specialty management with WordPress native post capabilities
+  - Consider SEO implications and URL structure for specialty pages
+
 ## [2.4.0] - 2025-10-01
 
 ### Added
