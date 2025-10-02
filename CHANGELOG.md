@@ -14,28 +14,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enhance specialty management with WordPress native post capabilities
   - Consider SEO implications and URL structure for specialty pages
 
-## [2.4.0] - 2025-10-01
+## [2.4.0] - 2025-10-02
 
 ### Added
 - **GraphQL Search Enhancement**: Added degree and insurance search parameters to `doctorsList` query
   - New `degree` parameter for filtering by physician degrees (M.D., D.O., N.P., etc.)
-  - New `insurance` parameter for filtering by insurance networks
+  - New `insurance` parameter for filtering by insurance networks (now supports arrays)
   - **Multiple Specialties Support**: Enhanced `specialty` parameter to accept array of specialties
+  - **Multiple Languages Support**: Enhanced `language` parameter to accept array of languages with OR logic
+  - **Multiple Insurance Support**: Enhanced `insurance` parameter to accept array of insurance networks with OR logic
   - Case-insensitive search matching for all parameters
   - Efficient JOIN-based filtering using normalized relationship tables
 
 ### Enhanced
-- **Specialty Filtering**: `specialty` parameter now supports multiple values with OR logic
-  - Accepts array: `specialty: ["Cardiology", "Internal Medicine", "Family Medicine"]`
-  - Backwards compatible: single specialty queries still work
-  - Finds doctors who match ANY of the specified specialties
-- GraphQL query description updated to reflect new search capabilities
+- **Complete OR Logic Implementation**: All array filters now use OR logic for better user experience
+  - **Specialties**: `["Cardiology", "Internal Medicine"]` finds doctors with ANY of these specialties
+  - **Languages**: `["English", "Spanish"]` finds doctors who speak ANY of these languages
+  - **Insurance**: `["Aetna", "Cigna"]` finds doctors who accept ANY of these insurances
+  - **Genders**: `["Male", "Female"]` finds doctors of ANY of these genders
+  - **Degrees**: `["M.D.", "D.O.", "N.P."]` finds doctors with ANY of these degrees
+- **Backwards Compatibility**: Single value queries still work (must be in array format)
+- GraphQL query description updated to reflect new array capabilities
 - Database queries optimized with proper foreign key relationships
 - Comprehensive test documentation for new search features
 
 ### Technical
 - Updated `class-fad-graphql.php` with enhanced search functionality
-- Added support for multiple specialty filtering with dynamic placeholder generation
+- Added support for multiple language filtering with dynamic placeholder generation
+- Added support for multiple insurance filtering with dynamic placeholder generation
 - Added support for `wp_doctor_degrees` and `wp_doctor_insurance` table relationships
 - Implemented comprehensive version management system
 - Maintained backwards compatibility with existing queries

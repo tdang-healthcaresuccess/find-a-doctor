@@ -9,12 +9,12 @@ The `doctorsList` GraphQL query now supports searching by degrees and insurance 
 ```graphql
 doctorsList(
   search: String
-  specialty: [String]       # UPDATED: Now accepts array of specialties
-  language: String
-  gender: String
+  specialty: [String]       # Array of specialties (OR logic)
+  language: [String]        # Array of languages (OR logic)
+  gender: [String]          # UPDATED: Now accepts array of genders (OR logic)
   primaryCare: Boolean
-  degree: String
-  insurance: String
+  degree: [String]          # UPDATED: Now accepts array of degrees (OR logic)
+  insurance: [String]       # Array of insurances (OR logic)
   page: Int
   perPage: Int
   orderBy: String
@@ -24,15 +24,15 @@ doctorsList(
 
 ### Example Queries
 
-#### Search by Multiple Specialties (NEW)
+#### Search by Multiple Languages (NEW)
 ```graphql
 query {
-  doctorsList(specialty: ["Cardiology", "Internal Medicine", "Family Medicine"], page: 1, perPage: 10) {
+  doctorsList(language: ["English", "Spanish", "French"], page: 1, perPage: 10) {
     items {
       first_name
       last_name
       practice_name
-      specialties
+      languages
     }
     total
     page
@@ -41,10 +41,27 @@ query {
 }
 ```
 
-#### Search by Single Specialty (Backwards Compatible)
+#### Search by Multiple Insurance Networks (NEW)
 ```graphql
 query {
-  doctorsList(specialty: ["Cardiology"], page: 1, perPage: 10) {
+  doctorsList(insurance: ["Blue Cross Blue Shield", "Aetna", "Cigna"], page: 1, perPage: 10) {
+    items {
+      first_name
+      last_name
+      practice_name
+      insurances
+    }
+    total
+    page
+    perPage
+  }
+}
+```
+
+#### Search by Multiple Specialties (Existing)
+```graphql
+query {
+  doctorsList(specialty: ["Cardiology", "Internal Medicine", "Family Medicine"], page: 1, perPage: 10) {
     items {
       first_name
       last_name
@@ -92,13 +109,14 @@ query {
 }
 ```
 
-#### Combined Search (Multiple Filters)
+#### Combined Search (Multiple Filters with Arrays)
 ```graphql
 query {
   doctorsList(
     specialty: ["Cardiology", "Orthopedic Surgery"]
+    language: ["English", "Spanish"]
+    insurance: ["Blue Cross Blue Shield", "Aetna", "United Healthcare"]
     degree: "M.D."
-    insurance: "Aetna"
     gender: "Female"
     primaryCare: false
     page: 1
@@ -112,10 +130,62 @@ query {
       practice_name
       phone
       specialties
+      languages
+      insurances
     }
     total
     page
     perPage
+  }
+}
+```
+
+#### Real-World Example: Find Bilingual Primary Care Providers
+```graphql
+query {
+  doctorsList(
+    specialty: ["Family Medicine", "Internal Medicine", "Pediatrics"]
+    language: ["English", "Spanish"]
+    primaryCare: true
+    insurance: ["Blue Cross Blue Shield", "Aetna", "Medicare"]
+    page: 1
+    perPage: 25
+  ) {
+    items {
+      first_name
+      last_name
+      practice_name
+      phone
+      specialties
+      languages
+      insurances
+    }
+    total
+    page
+    perPage
+  }
+}
+```
+
+#### Real-World Example: Find Multilingual Specialists
+```graphql
+query {
+  doctorsList(
+    specialty: ["Cardiology", "Neurology", "Oncology"]
+    language: ["English", "Mandarin", "Korean", "Japanese"]
+    insurance: ["United Healthcare", "Cigna", "Kaiser Permanente"]
+    page: 1
+    perPage: 20
+  ) {
+    items {
+      first_name
+      last_name
+      practice_name
+      specialties
+      languages
+      insurances
+    }
+    total
   }
 }
 ```
@@ -169,6 +239,14 @@ query {
 
 ## Implementation Details
 
+### OR Logic for Arrays
+- **Specialties**: `specialty: ["Cardiology", "Dermatology"]` finds doctors with ANY of these specialties
+- **Languages**: `language: ["English", "Spanish"]` finds doctors who speak ANY of these languages  
+- **Insurance**: `insurance: ["Aetna", "Cigna"]` finds doctors who accept ANY of these insurances
+- **SQL logic**: Uses `OR` conditions within each filter type
+- **Backwards compatibility**: Single values still work (must be in array format)
+- **Case-insensitive**: All matching uses `LOWER()` for consistent results
+
 ### Multiple Specialties Logic
 - **Array input**: `specialty: ["Cardiology", "Dermatology", "Neurology"]`
 - **SQL logic**: Uses `OR` conditions to match doctors who have ANY of the specified specialties
@@ -191,12 +269,24 @@ query {
 
 1. ✅ **Syntax validation** - PHP syntax is valid
 2. 🔲 **Multiple specialties search** - Test filtering by array of specialties
-3. 🔲 **Single specialty backwards compatibility** - Test single specialty in array format
-4. 🔲 **Degree search** - Test filtering by degree names
-5. 🔲 **Insurance search** - Test filtering by insurance networks  
-6. 🔲 **Combined filters** - Test multiple parameters together including specialty array
-7. 🔲 **Case sensitivity** - Verify case-insensitive matching
-8. 🔲 **Performance** - Check query execution time with large datasets and multiple specialties
+3. 🔲 **Multiple languages search** - Test filtering by array of languages (OR logic)
+4. 🔲 **Multiple insurance search** - Test filtering by array of insurance networks (OR logic)
+5. 🔲 **Backwards compatibility** - Test single values in array format
+6. 🔲 **Degree search** - Test filtering by degree names
+7. 🔲 **Combined filters** - Test multiple array parameters together
+8. 🔲 **Case sensitivity** - Verify case-insensitive matching
+9. 🔲 **Performance** - Check query execution time with multiple arrays and large datasets
+
+## Common Language Combinations to Test
+- Bilingual: `["English", "Spanish"]`
+- Multilingual: `["English", "Spanish", "French", "Mandarin"]`
+- European: `["English", "German", "Italian", "French"]`
+- Asian: `["English", "Mandarin", "Korean", "Japanese"]`
+
+## Common Insurance Network Combinations to Test
+- Major Networks: `["Blue Cross Blue Shield", "Aetna", "Cigna", "United Healthcare"]`
+- Government: `["Medicare", "Medicaid"]`
+- Regional: `["Kaiser Permanente", "Humana"]`
 
 ## Common Specialty Combinations to Test
 - Primary Care: `["Family Medicine", "Internal Medicine", "Pediatrics"]`

@@ -270,15 +270,15 @@ add_action('graphql_register_types', function () {
     // --- doctors(...) list with filters ---
     register_graphql_field('RootQuery', 'doctorsList', [
         'type'        => 'DoctorList',
-        'description' => __('Paginated doctors with common filters (search, specialties array, language, gender, degree, insurance, primaryCare)','fad-graphql'),
+        'description' => __('Paginated doctors with common filters (search, specialties array, languages array, genders array, degrees array, insurances array, primaryCare)','fad-graphql'),
         'args'        => [
             'search'      => ['type' => 'String'],
             'specialty'   => ['type' => ['list_of' => 'String']],
-            'language'    => ['type' => 'String'],
-            'gender'      => ['type' => 'String'],
+            'language'    => ['type' => ['list_of' => 'String']],
+            'gender'      => ['type' => ['list_of' => 'String']],
             'primaryCare' => ['type' => 'Boolean'],
-            'degree'      => ['type' => 'String'],
-            'insurance'   => ['type' => 'String'],
+            'degree'      => ['type' => ['list_of' => 'String']],
+            'insurance'   => ['type' => ['list_of' => 'String']],
             'page'        => ['type' => 'Int'],
             'perPage'     => ['type' => 'Int'],
             'orderBy'     => ['type' => 'String'], // first_name|last_name|degree|practice_name
@@ -310,8 +310,18 @@ add_action('graphql_register_types', function () {
                 $params[] = !empty($args['primaryCare']) ? 1 : 0;
             }
             if (!empty($args['gender'])) {
-                $where[]  = 'd.gender = %s';
-                $params[] = $args['gender'];
+                // Handle array of genders
+                if (is_array($args['gender'])) {
+                    $gender_placeholders = array_fill(0, count($args['gender']), 'd.gender = %s');
+                    $where[] = '(' . implode(' OR ', $gender_placeholders) . ')';
+                    foreach ($args['gender'] as $gender) {
+                        $params[] = $gender;
+                    }
+                } else {
+                    // Backwards compatibility: single gender as string
+                    $where[]  = 'd.gender = %s';
+                    $params[] = $args['gender'];
+                }
             }
 
             if (!empty($args['specialty'])) {
@@ -334,20 +344,53 @@ add_action('graphql_register_types', function () {
             if (!empty($args['language'])) { 
                 $join[]   = "INNER JOIN {$t_doc_lang} dl ON dl.doctorID = d.doctorID";
                 $join[]   = "INNER JOIN {$t_lang} l ON l.languageID = dl.languageID";
-                $where[]  = 'LOWER(l.language) = LOWER(%s)';
-                $params[] = $args['language'];
+                
+                // Handle array of languages
+                if (is_array($args['language'])) {
+                    $language_placeholders = array_fill(0, count($args['language']), 'LOWER(l.language) = LOWER(%s)');
+                    $where[] = '(' . implode(' OR ', $language_placeholders) . ')';
+                    foreach ($args['language'] as $language) {
+                        $params[] = $language;
+                    }
+                } else {
+                    // Backwards compatibility: single language as string
+                    $where[]  = 'LOWER(l.language) = LOWER(%s)';
+                    $params[] = $args['language'];
+                }
             }
             if (!empty($args['degree'])) {
                 $join[]   = "INNER JOIN {$t_doc_deg} dd ON dd.doctorID = d.doctorID";
                 $join[]   = "INNER JOIN {$t_degrees} deg ON deg.degreeID = dd.degreeID";
-                $where[]  = 'LOWER(deg.degree_name) = LOWER(%s)';
-                $params[] = $args['degree'];
+                
+                // Handle array of degrees
+                if (is_array($args['degree'])) {
+                    $degree_placeholders = array_fill(0, count($args['degree']), 'LOWER(deg.degree_name) = LOWER(%s)');
+                    $where[] = '(' . implode(' OR ', $degree_placeholders) . ')';
+                    foreach ($args['degree'] as $degree) {
+                        $params[] = $degree;
+                    }
+                } else {
+                    // Backwards compatibility: single degree as string
+                    $where[]  = 'LOWER(deg.degree_name) = LOWER(%s)';
+                    $params[] = $args['degree'];
+                }
             }
             if (!empty($args['insurance'])) {
                 $join[]   = "INNER JOIN {$t_doc_ins} di ON di.doctorID = d.doctorID";
                 $join[]   = "INNER JOIN {$t_insurance} ins ON ins.insuranceID = di.insuranceID";
-                $where[]  = 'LOWER(ins.insurance_name) = LOWER(%s)';
-                $params[] = $args['insurance'];
+                
+                // Handle array of insurances
+                if (is_array($args['insurance'])) {
+                    $insurance_placeholders = array_fill(0, count($args['insurance']), 'LOWER(ins.insurance_name) = LOWER(%s)');
+                    $where[] = '(' . implode(' OR ', $insurance_placeholders) . ')';
+                    foreach ($args['insurance'] as $insurance) {
+                        $params[] = $insurance;
+                    }
+                } else {
+                    // Backwards compatibility: single insurance as string
+                    $where[]  = 'LOWER(ins.insurance_name) = LOWER(%s)';
+                    $params[] = $args['insurance'];
+                }
             }
 
             $where_sql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
