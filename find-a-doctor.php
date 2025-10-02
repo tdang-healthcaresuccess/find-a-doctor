@@ -2,12 +2,15 @@
 /**
  * Plugin Name: Find a Doctor
  * Description: Clean structured plugin with DB schema, import, and REST API.
- * Version: 2.3
+ * Version: 2.4.0
  * Author: Healthcare Success
  * Author URI: https://healthcaresuccess.com
  */
 
 defined('ABSPATH') || exit;
+
+// Version management
+require_once plugin_dir_path(__FILE__) . 'includes/version.php';
 
 // Required files
 require_once plugin_dir_path(__FILE__) . 'includes/create-tables.php';
@@ -151,7 +154,7 @@ function fnd_activate_plugin() {
 }
 
 // related to wp graph
-define('FAD_GQL_VERSION', '1.0.3');
+define('FAD_GQL_VERSION', FAD_GRAPHQL_VERSION);
 define('FAD_GQL_PATH', plugin_dir_path(__FILE__));
 define('FAD_GQL_URL',  plugin_dir_url(__FILE__));
 
