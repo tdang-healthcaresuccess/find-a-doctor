@@ -3,6 +3,50 @@ if ( ! defined('ABSPATH') ) { exit; }
 
 add_action('graphql_register_types', function () {
 
+    // --- helper to map a DB row to Doctor shape (used by multiple resolvers) ---
+    $map_row = function(array $row) {
+        $doctor_id = (int)($row['doctorID'] ?? 0);
+        return [
+            'doctorID'        => $doctor_id,
+            'slug'            => $row['slug'] ?? '',
+            'idme'            => $row['idme'] ?? '',
+            'firstName'       => $row['first_name'] ?? '',
+            'lastName'        => $row['last_name'] ?? '',
+            'degree'          => $row['degree'] ?? '',
+            'email'           => $row['email'] ?? '',
+            'phoneNumber'     => $row['phone_number'] ?? '',
+            'faxNumber'       => $row['fax_number'] ?? '',
+            'primaryCare'     => ! empty($row['primary_care']),
+            'gender'          => $row['gender'] ?? '',
+            'medicalSchool'   => $row['medical_school'] ?? '',
+            'internship'      => $row['internship'] ?? '',
+            'certification'   => $row['certification'] ?? '',
+            'residency'       => $row['residency'] ?? '',
+            'fellowship'      => $row['fellowship'] ?? '',
+            'biography'       => $row['biography'] ?? '',
+            'practiceName'    => $row['practice_name'] ?? '',
+            'provStatus'      => ! empty($row['prov_status']),
+            'address'         => $row['address'] ?? '',
+            'city'            => $row['city'] ?? '',
+            'state'           => $row['state'] ?? '',
+            'zip'             => $row['zip'] ?? '', 
+            'county'          => $row['county'] ?? '',
+            'latitude'        => isset($row['latitude']) ? (float)$row['latitude'] : null,
+            'longitude'       => isset($row['longitude']) ? (float)$row['longitude'] : null,
+            'accepts_new_patients' => ! empty($row['accepts_new_patients']),
+            'accept_medi_cal' => ! empty($row['accept_medi_cal']),
+            'insurances'      => fad_get_terms_for_doctor('insurance', $doctor_id), 
+            'hospitalNames'   => $row['hospitalNames'] ?? ($row['hospital_names'] ?? ''),
+            'hospitals'       => fad_get_doctor_hospitals($doctor_id, $row['hospitalNames'] ?? ($row['hospital_names'] ?? '')),
+            'mentalHealth'    => ! empty($row['is_ab_directory']),
+            'btDirectory'     => ! empty($row['is_bt_directory']),
+            'profileImageUrl' => $row['profile_img_url'] ?? '',
+            'languages'       => fad_get_terms_for_doctor('language', $doctor_id),
+            'specialties'     => fad_get_terms_for_doctor('specialty', $doctor_id),
+            'degrees'         => fad_get_terms_for_doctor('degree', $doctor_id),
+        ];
+    };
+
         // --- Physician List Query with Filters ---
     register_graphql_field('RootQuery', 'physicians', [
         'type' => ['list_of' => 'Doctor'],
@@ -172,50 +216,6 @@ add_action('graphql_register_types', function () {
             'degrees'         => ['type' => ['list_of' => 'String']],
         ],
     ]);
-
-    // --- helper to map a DB row to Doctor shape (used by multiple resolvers) ---
-    $map_row = function(array $row) {
-        $doctor_id = (int)($row['doctorID'] ?? 0);
-        return [
-            'doctorID'        => $doctor_id,
-            'slug'            => $row['slug'] ?? '',
-            'idme'            => $row['idme'] ?? '',
-            'firstName'       => $row['first_name'] ?? '',
-            'lastName'        => $row['last_name'] ?? '',
-            'degree'          => $row['degree'] ?? '',
-            'email'           => $row['email'] ?? '',
-            'phoneNumber'     => $row['phone_number'] ?? '',
-            'faxNumber'       => $row['fax_number'] ?? '',
-            'primaryCare'     => ! empty($row['primary_care']),
-            'gender'          => $row['gender'] ?? '',
-            'medicalSchool'   => $row['medical_school'] ?? '',
-            'internship'      => $row['internship'] ?? '',
-            'certification'   => $row['certification'] ?? '',
-            'residency'       => $row['residency'] ?? '',
-            'fellowship'      => $row['fellowship'] ?? '',
-            'biography'       => $row['biography'] ?? '',
-            'practiceName'    => $row['practice_name'] ?? '',
-            'provStatus'      => ! empty($row['prov_status']),
-            'address'         => $row['address'] ?? '',
-            'city'            => $row['city'] ?? '',
-            'state'           => $row['state'] ?? '',
-            'zip'             => $row['zip'] ?? '', 
-            'county'          => $row['county'] ?? '',
-            'latitude'        => isset($row['latitude']) ? (float)$row['latitude'] : null,
-            'longitude'       => isset($row['longitude']) ? (float)$row['longitude'] : null,
-            'accepts_new_patients' => ! empty($row['accepts_new_patients']),
-            'accept_medi_cal' => ! empty($row['accept_medi_cal']),
-            'insurances'      => fad_get_terms_for_doctor('insurance', $doctor_id), 
-            'hospitalNames'   => $row['hospitalNames'] ?? ($row['hospital_names'] ?? ''),
-            'hospitals'       => fad_get_doctor_hospitals($doctor_id, $row['hospitalNames'] ?? ($row['hospital_names'] ?? '')),
-            'mentalHealth'    => ! empty($row['is_ab_directory']),
-            'btDirectory'     => ! empty($row['is_bt_directory']),
-            'profileImageUrl' => $row['profile_img_url'] ?? '',
-            'languages'       => fad_get_terms_for_doctor('language', $doctor_id),
-            'specialties'     => fad_get_terms_for_doctor('specialty', $doctor_id),
-            'degrees'         => fad_get_terms_for_doctor('degree', $doctor_id),
-        ];
-    };
 
     // --- doctorBySlug(slug) ---
     register_graphql_field('RootQuery', 'doctorBySlug', [

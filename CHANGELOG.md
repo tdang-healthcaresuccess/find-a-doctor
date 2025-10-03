@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Database queries optimized with proper foreign key relationships
 - Comprehensive test documentation for new search features
 
+### Fixed
+- **PHP Warning Fix**: Resolved "Undefined variable $map_row" error by moving function definition to proper scope
+  - Moved `$map_row` helper function to beginning of GraphQL registration action
+  - Eliminates PHP warnings in error logs related to undefined variable usage
+
 ### Technical
 - Updated `class-fad-graphql.php` with enhanced search functionality
 - Added support for multiple language filtering with dynamic placeholder generation
